@@ -1,0 +1,37 @@
+{
+  "manifest_version": 3,
+  "name": "Continue it",
+  "version": "0.6.0",
+  "description": "Migrate conversation context between Claude, ChatGPT, Gemini, Grok, Perplexity, and more with long-chat support.",
+  "permissions": ["storage", "unlimitedStorage", "clipboardWrite"],
+  "host_permissions": [
+    "https://claude.ai/*",
+    "https://chatgpt.com/*",
+    "https://chat.openai.com/*",
+    "https://gemini.google.com/*",
+    "https://grok.com/*",
+    "https://x.com/i/grok*",
+    "https://perplexity.ai/*",
+    "https://www.perplexity.ai/*"
+  ],
+  "action": {
+    "default_title": "Continue it",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://claude.ai/*",
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*",
+        "https://gemini.google.com/*",
+        "https://grok.com/*",
+        "https://x.com/i/grok*",
+        "https://perplexity.ai/*",
+        "https://www.perplexity.ai/*"
+      ],
+      "js": ["provider-config.js", "shared-handoff.js", "shared-ui.js", "content-site.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

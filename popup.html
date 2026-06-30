@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Continue it</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="app">
+      <h1>Continue it</h1>
+      <p class="subtitle">Production handoff controls across Claude, ChatGPT, Gemini, Grok, Perplexity, and more.</p>
+
+      <section class="panel stats-grid">
+        <div class="stat-card">
+          <span class="stat-label">Source</span>
+          <strong id="source">None</strong>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Captured</span>
+          <strong id="capturedAt">Nothing saved</strong>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Summary mode</span>
+          <strong id="lastMode">-</strong>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Messages</span>
+          <strong id="messageCount">0</strong>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Assistant replies</span>
+          <strong id="assistantCount">0</strong>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Chunk progress</span>
+          <strong id="chunkProgress">0/0</strong>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Default export mode</h2>
+        <label class="field-label" for="summaryMode">Choose how detailed the generated summary should be</label>
+        <select id="summaryMode">
+          <option value="short">Short</option>
+          <option value="medium">Medium</option>
+          <option value="detailed">Detailed</option>
+        </select>
+      </section>
+
+      <section class="panel">
+        <h2>Warnings</h2>
+        <ul id="warnings" class="warning-list"></ul>
+      </section>
+
+      <section class="panel">
+        <h2>Last summary</h2>
+        <textarea id="summaryPreview" readonly placeholder="No saved summary yet."></textarea>
+      </section>
+
+      <section class="panel">
+        <h2>Recommended prompt preview</h2>
+        <textarea id="promptPreview" readonly placeholder="No saved prompt yet."></textarea>
+      </section>
+
+      <section class="button-grid">
+        <button id="copyRecommended" type="button">Copy recommended prompt</button>
+        <button id="copyNextChunk" type="button" class="secondary">Copy next chunk</button>
+        <button id="resetChunks" type="button" class="secondary">Reset chunk queue</button>
+        <button id="downloadJson" type="button" class="secondary">Download JSON</button>
+        <button id="clearSaved" type="button" class="danger">Clear saved handoff</button>
+      </section>
+
+      <p id="status" class="status"></p>
+    </main>
+    <script src="shared-handoff.js"></script>
+    <script src="popup.js"></script>
+  </body>
+</html>
