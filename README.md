@@ -1,5 +1,9 @@
 # Continue it
 
+<p align="center">
+  <img src="assets/logo.png" alt="Continue it logo" width="600" />
+</p>
+
 > Carry your AI conversation to any platform — without losing context.
 
 **Continue it** is a zero-dependency Chrome extension (Manifest V3) that extracts a full conversation from one AI chat platform and packages it into a portable prompt you can drop into any other platform — instantly resuming where you left off.
@@ -148,7 +152,7 @@ Then set the **Server URL** in the popup (default `http://localhost:8787`) and c
 1. Download or clone this repository
 2. Open Chrome and go to `chrome://extensions/`
 3. Enable **Developer mode** (toggle in the top-right corner)
-4. Click **Load unpacked**
+4. Click **Load unpacked** or **Load packed** if you have a zip file.
 5. Select the `Continue it` folder
 6. The extension icon appears in your toolbar
 
@@ -296,6 +300,18 @@ To test on a platform, navigate to a chat page with an active conversation and t
 | `optional_host_permissions` | Requested only when you enable Server AI or your own API key — grants access to that one endpoint |
 
 In **No AI** mode, no network requests are made and no data leaves your browser. In **Server AI** or **Your own API key** mode, a compacted summary is sent only to the endpoint you configured, and the extension asks for permission to reach that host at the moment you save the setting.
+
+---
+
+## License
+
+MIT © 2026 Rohit Nehte
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ---
 
