@@ -57,13 +57,15 @@ h2 {
 
 select,
 textarea,
+input,
 button {
   width: 100%;
   box-sizing: border-box;
 }
 
 select,
-textarea {
+textarea,
+input {
   border: 1px solid #cbd5e1;
   border-radius: 8px;
   padding: 10px 12px;
@@ -122,4 +124,96 @@ button.danger {
   margin: 12px 0 0;
   font-size: 12px;
   color: #475467;
+}
+
+.radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.radio-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  color: #0f172a;
+  cursor: pointer;
+}
+
+.radio-option input {
+  width: auto;
+  margin-top: 2px;
+  flex: 0 0 auto;
+}
+
+.subpanel {
+  border-top: 1px solid #e2e8f0;
+  padding-top: 12px;
+  margin-bottom: 12px;
+}
+
+.subpanel[hidden] {
+  display: none;
+}
+
+.inline-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.inline-row button {
+  width: auto;
+  flex: 1;
+}
+
+.hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: #475467;
+  line-height: 1.4;
+}
+
+.hint.quota-low {
+  color: #b54708;
+}
+
+.hint.quota-empty {
+  color: #b42318;
+}
+
+.link {
+  display: inline-block;
+  margin: 8px 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: #1d4ed8;
+  text-decoration: none;
+}
+
+.link:hover {
+  text-decoration: underline;
+}
+
+.test-status {
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.test-status.ok {
+  background: #dcfce7;
+  color: #166534;
+  border: 1px solid #bbf7d0;
+}
+
+.test-status.error {
+  background: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
 }

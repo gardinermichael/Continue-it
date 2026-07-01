@@ -11,7 +11,7 @@
 When you're deep in a conversation with Claude, ChatGPT, Gemini, Grok, or Perplexity and want to switch platforms (or start a fresh session while keeping context), Continue it:
 
 1. **Scrolls through and captures** your entire conversation history from the page DOM
-2. **Generates an intelligent summary** of the thread — task, requirements, decisions, blockers, files, timeline
+2. **Generates a summary** of the thread — task, requirements, decisions, blockers, files, timeline. Choose one of three modes: **local (no AI)**, **shared Server AI** (5 free/day), or **your own API key** (unlimited) — see [AI summaries](#ai-summaries-three-modes)
 3. **Packages the context** into a prompt (or a sequence of chunks for long conversations) ready to paste into any target LLM
 4. **Tracks chunk progress** in the popup so you can send large transcripts in staged batches
 
@@ -52,7 +52,7 @@ Three verbosity levels — **short**, **medium** (default), **detailed** — eac
 | Decisions | Choices discussed and confirmed |
 | Next action | Recommended continuation prompt |
 
-Sentences are scored by length, position, message order, and keyword relevance before selection.
+Sentences are scored by length, position, message order, and keyword relevance before selection. This local summary is always produced as a baseline; the AI modes below refine it into a higher-quality handoff.
 
 ### Export modes
 
@@ -71,7 +71,6 @@ Single prompt with header + summary + chunk digest + import instructions. Paste 
 - Buttons: copy recommended prompt, copy next chunk, reset chunk queue, download JSON, clear handoff
 
 ### Storage
-All data lives in `chrome.storage.local` — nothing leaves the browser.
 
 | Key | Contents |
 |---|---|
@@ -79,6 +78,66 @@ All data lives in `chrome.storage.local` — nothing leaves the browser.
 | `continueIt.summaryMode` | Preferred verbosity level |
 | `continueIt.chunkCursor` | Per-handoff chunk index for staged imports |
 | `continueIt.handoffHistory` | Last 10 exports (metadata only) |
+| `continueIt.ai.mode` | AI summary mode: `none` / `server` / `byok` |
+| `continueIt.ai.serverUrl` | Shared backend URL (Server AI mode) |
+| `continueIt.ai.byokBaseUrl` / `byokModel` / `byokApiKey` / `byokProvider` | Your own provider config |
+| `continueIt.clientId` | Anonymous id used for the Server AI daily quota |
+
+Handoff data lives in `chrome.storage.local`. In **No AI** mode nothing ever leaves the browser. In **Server AI** / **Your own key** modes, a compacted summary of the conversation is sent to the endpoint you choose (see below).
+
+---
+
+## AI summaries (three modes)
+
+Pick a mode in the popup under **AI summary mode**. All three produce the same portable handoff; they differ only in how the summary is written.
+
+| Mode | Quality | Cost | Privacy | Setup |
+|---|---|---|---|---|
+| **No AI** (default) | Good (local heuristic) | Free | Fully local, offline | None |
+| **Server AI** | Better (real LLM) | Free, **5 exports / 24h** | Summary sent to the shared backend | None for the user |
+| **Your own API key** | Best (any model you like) | Free on the providers below | Summary sent to your chosen provider | Paste a key |
+
+If an AI request ever fails (rate limit, bad key, network), the extension automatically falls back to the local summary and adds a warning — an export never breaks.
+
+### Your own API key — free OpenAI-compatible providers
+
+Any OpenAI-compatible endpoint works. Create a key (most need no credit card), pick it in the popup, paste the key, and click **Save AI settings** (this also grants the extension permission to reach that host). Use **Test connection** to verify.
+
+| Provider | Base URL | Example free model | Get a key |
+|---|---|---|---|
+| **OpenRouter** | `https://openrouter.ai/api/v1` | `meta-llama/llama-3.3-70b-instruct:free` | [openrouter.ai/keys](https://openrouter.ai/keys) |
+| **Google AI Studio** | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-2.0-flash` | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) |
+| **Groq** (fastest) | `https://api.groq.com/openai/v1` | `llama-3.3-70b-versatile` | [console.groq.com/keys](https://console.groq.com/keys) |
+| **Cerebras** (highest volume) | `https://api.cerebras.ai/v1` | `llama-3.3-70b` | [cloud.cerebras.ai](https://cloud.cerebras.ai/) |
+| **NVIDIA NIM** | `https://integrate.api.nvidia.com/v1` | `meta/llama-3.1-70b-instruct` | [build.nvidia.com](https://build.nvidia.com/) |
+| **Mistral** | `https://api.mistral.ai/v1` | `mistral-small-latest` | [console.mistral.ai](https://console.mistral.ai/api-keys/) |
+
+Free-tier limits change often — verify the current numbers on each provider's site. Keys are stored only in `chrome.storage.local` on your machine and are sent only to the provider you configured.
+
+### Server AI — running the shared backend (for maintainers)
+
+The Server AI mode lets you offer smart summaries to users without them needing a key, capped at **5 exports per 24h per user** (by anonymous client id + IP) so it stays cheap.
+
+```bash
+cd server            # from the repo root
+npm install          # installs express, cors, dotenv (once, at repo root)
+cp .env.example .env # then edit .env
+npm start
+```
+
+Configure `.env` with any **free** OpenAI-compatible provider so it costs you nothing:
+
+```bash
+OPENAI_BASE_URL=https://openrouter.ai/api/v1
+OPENAI_API_KEY=sk-or-...            # your key, never exposed to users
+OPENAI_MODEL=meta-llama/llama-3.3-70b-instruct:free
+DAILY_LIMIT=5                       # exports per window
+RATE_WINDOW_HOURS=24
+```
+
+Then set the **Server URL** in the popup (default `http://localhost:8787`) and choose **Server AI**. Deploy the server anywhere (Render, Railway, Fly, a VPS) and point the popup at that URL.
+
+> The in-memory rate limiter is per-instance and resets on restart. For a hardened multi-instance deployment, back it with Redis or a database.
 
 ---
 
@@ -139,37 +198,38 @@ Supports any Chromium-based browser that handles Manifest V3: Chrome, Edge, Brav
 ```
 Continue it/
 ├── manifest.json          # Extension config (MV3), permissions, host permissions
-├── background.js          # Service worker — SAVE_HANDOFF / GET_HANDOFF message bus
+├── background.js          # Service worker — performs AI summarize requests (Server AI + BYO)
 ├── provider-config.js     # Provider registry (selectors, role hints per platform)
-├── shared-handoff.js      # Core data model, summarizer, chunker, storage API
+├── shared-handoff.js      # Core data model, local summarizer, chunker, storage API
+├── shared-ai.js           # Unified AI client — modes, provider presets, settings, permissions
 ├── shared-ui.js           # Toast, modal, and launcher button components
 ├── content-site.js        # Generic content script injected on all supported sites
-├── content-claude.js      # Claude-specific extraction overrides
-├── content-chatgpt.js     # ChatGPT-specific composer insertion
-├── content-common.js      # Legacy utility file (superseded by shared-handoff.js)
-├── popup.html             # Popup UI markup
-├── popup.css              # Popup styles
-└── popup.js               # Popup logic and event handlers
+├── popup.html/.css/.js    # Popup UI (stats, AI mode selector, handoff controls)
+└── server/
+    └── server.js          # Optional shared backend — OpenAI-compatible upstream + rate limiter
 ```
 
 ### Content script load order
 
 ```
-provider-config.js   →  shared-handoff.js  →  shared-ui.js  →  content-site.js
-(provider registry)      (data model/API)      (UI library)     (button + modal)
+provider-config.js  →  shared-handoff.js  →  shared-ai.js  →  shared-ui.js  →  content-site.js
+(provider registry)     (data model/API)      (AI client)      (UI library)     (button + modal)
 ```
 
-### Message protocol (content ↔ background)
+### AI request flow
+
+The content script never calls an AI provider directly (page CSP/CORS would block it on strict
+sites). Instead it hands a compacted summary to the **background service worker**, which holds the
+host permission and makes the cross-origin request:
 
 ```js
-// Save a captured handoff
-chrome.runtime.sendMessage({ type: "SAVE_HANDOFF", payload: handoff }, cb)
-
-// Retrieve the latest handoff
-chrome.runtime.sendMessage({ type: "GET_HANDOFF" }, cb)
+// content-site.js → shared-ai.js → background.js
+chrome.runtime.sendMessage({ type: "continueIt.summarize", payload }, cb)
+// → Server AI: POST <serverUrl>/api/summarize   (with x-continue-it-client header)
+// → Your key:  POST <baseUrl>/chat/completions  (Authorization: Bearer <key>)
 
 // Response shape
-{ ok: true, payload?: any } | { ok: false, error: string }
+{ ok, used, summary, quota?: { limit, remaining, resetAt }, error }
 ```
 
 ### Handoff schema (v2)
@@ -233,11 +293,12 @@ To test on a platform, navigate to a chat page with an active conversation and t
 | `unlimitedStorage` | Allow large conversation exports without hitting the default 5 MB quota |
 | `clipboardWrite` | Copy prompts and chunks to clipboard |
 | Host permissions (8 domains) | Inject content scripts on supported AI platforms |
+| `optional_host_permissions` | Requested only when you enable Server AI or your own API key — grants access to that one endpoint |
 
-No network requests are made. No data is sent anywhere outside your browser.
+In **No AI** mode, no network requests are made and no data leaves your browser. In **Server AI** or **Your own API key** mode, a compacted summary is sent only to the endpoint you configured, and the extension asks for permission to reach that host at the moment you save the setting.
 
 ---
 
 ## Version
 
-**0.6.0** — Manifest V3, schema v2
+**0.7.0** — Manifest V3, schema v2. Adds three AI summary modes (local / Server AI with 5-per-day quota / bring-your-own OpenAI-compatible key) and an optional rate-limited backend.

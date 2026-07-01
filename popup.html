@@ -25,6 +25,10 @@
           <strong id="lastMode">-</strong>
         </div>
         <div class="stat-card">
+          <span class="stat-label">Summary via</span>
+          <strong id="summarySource">-</strong>
+        </div>
+        <div class="stat-card">
           <span class="stat-label">Messages</span>
           <strong id="messageCount">0</strong>
         </div>
@@ -49,8 +53,36 @@
       </section>
 
       <section class="panel">
-        <h2>Warnings</h2>
-        <ul id="warnings" class="warning-list"></ul>
+        <h2>AI summary mode</h2>
+        <p class="field-label">Choose how the export summary is generated.</p>
+        <div class="radio-group">
+          <label class="radio-option"><input type="radio" name="aiMode" value="none" /> <span><strong>No AI</strong> — local, free, private, works offline</span></label>
+          <label class="radio-option"><input type="radio" name="aiMode" value="server" /> <span><strong>Server AI</strong> — smarter summaries, 5 free exports / 24h</span></label>
+          <label class="radio-option"><input type="radio" name="aiMode" value="byok" /> <span><strong>Your own API key</strong> — unlimited, uses your free provider</span></label>
+        </div>
+
+        <div id="serverSettings" class="subpanel" hidden>
+          <p id="quotaInfo" class="hint"></p>
+        </div>
+
+        <div id="byokSettings" class="subpanel" hidden>
+          <label class="field-label" for="providerSelect">Free provider</label>
+          <select id="providerSelect"></select>
+          <p id="providerNote" class="hint"></p>
+          <a id="providerKeyLink" class="link" href="#" target="_blank" rel="noopener noreferrer" hidden>Get a free API key ↗</a>
+          <label class="field-label" for="byokBaseUrl">Base URL</label>
+          <input id="byokBaseUrl" type="text" placeholder="https://openrouter.ai/api/v1" />
+          <label class="field-label" for="byokModel">Model</label>
+          <input id="byokModel" type="text" placeholder="meta-llama/llama-3.3-70b-instruct:free" />
+          <label class="field-label" for="byokApiKey">API key</label>
+          <input id="byokApiKey" type="password" placeholder="Paste your API key" autocomplete="off" />
+          <p id="testStatus" class="test-status" hidden></p>
+          <div class="inline-row">
+            <button id="testAi" type="button" class="secondary">Test connection</button>
+          </div>
+        </div>
+
+        <button id="saveAi" type="button">Save AI settings</button>
       </section>
 
       <section class="panel">
@@ -74,6 +106,7 @@
       <p id="status" class="status"></p>
     </main>
     <script src="shared-handoff.js"></script>
+    <script src="shared-ai.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>
