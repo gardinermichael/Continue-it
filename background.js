@@ -72,11 +72,9 @@ function buildSummarizeMessages({ source, mode, heuristicSummary, compactConvers
   ];
 }
 
-// --- Shared backend (Server AI) ---------------------------------------------
-
+// --- Shared backend (sarvam AI) 
 async function summarizeViaServer(payload) {
-  const stored = await getStorage([AI_STORAGE_KEYS.serverUrl]);
-  const serverUrl = (stored[AI_STORAGE_KEYS.serverUrl] || DEFAULT_SERVER_URL).replace(/\/$/, "");
+  const serverUrl = DEFAULT_SERVER_URL.replace(/\/$/, "");
   const url = `${serverUrl}/api/summarize`;
 
   if (!(await hasOriginPermission(serverUrl))) {
@@ -136,7 +134,7 @@ async function summarizeViaServer(payload) {
   return { ok: true, used: true, summary, quota: json?.quota || null, error: null };
 }
 
-// --- Bring your own key (OpenAI-compatible) ---------------------------------
+// --- Bring your own key (OpenAI-compatible) 
 
 async function summarizeViaByok(payload) {
   const stored = await getStorage([AI_STORAGE_KEYS.byokBaseUrl, AI_STORAGE_KEYS.byokModel, AI_STORAGE_KEYS.byokApiKey]);
