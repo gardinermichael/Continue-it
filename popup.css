@@ -6,6 +6,17 @@ body {
   color: #0f172a;
 }
 
+#iconImg{
+width: 50px;
+
+}
+
+.head{
+  display: flex;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
 .app {
   padding: 16px;
 }
@@ -52,7 +63,9 @@ h2 {
   display: block;
   color: #475467;
   font-size: 12px;
-  margin-bottom: 6px;
+  margin-top: 10px;
+  margin-bottom: 5px;
+  margin-inline-start: 10px;
 }
 
 select,
@@ -106,6 +119,16 @@ button.danger {
   background: #b42318;
 }
 
+button:disabled,
+button.secondary:disabled,
+button.danger:disabled {
+  background: #e5e7eb;
+  color: #98a2b3;
+  border: 1px solid #d0d5dd;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
 .warning-list {
   margin: 0;
   padding-left: 18px;
@@ -137,6 +160,9 @@ button.danger {
   display: flex;
   align-items: flex-start;
   gap: 8px;
+  padding: 20px 30px;
+  border: 2px solid #111827;
+  border-radius: 10px;
   font-size: 13px;
   color: #0f172a;
   cursor: pointer;
@@ -146,6 +172,10 @@ button.danger {
   width: auto;
   margin-top: 2px;
   flex: 0 0 auto;
+}
+
+.radio-option:has(input:checked) {
+  background: #dddddd;
 }
 
 .subpanel {

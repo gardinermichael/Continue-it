@@ -141,11 +141,15 @@ async function renderPopup() {
   summaryPreviewEl.value = handoff.summary || "";
   promptPreviewEl.value = packageInfo.recommendedInsertPrompt || "";
 
-  copyRecommendedButton.disabled = false;
-  copyNextChunkButton.disabled = packageInfo.chunkCount === 0;
-  resetChunksButton.disabled = packageInfo.chunkCount === 0;
-  downloadJsonButton.disabled = false;
-  clearSavedButton.disabled = false;
+  const hasSummaryText = summaryPreviewEl.value.trim().length > 0;
+  const hasPromptText = promptPreviewEl.value.trim().length > 0;
+  const hasPreviewText = hasSummaryText || hasPromptText;
+
+  copyRecommendedButton.disabled = !hasPromptText;
+  copyNextChunkButton.disabled = packageInfo.chunkCount === 0 || !hasPreviewText;
+  resetChunksButton.disabled = packageInfo.chunkCount === 0 || !hasPreviewText;
+  downloadJsonButton.disabled = !hasPreviewText;
+  clearSavedButton.disabled = !hasPreviewText;
 }
 
 summaryModeEl.addEventListener("change", async () => {

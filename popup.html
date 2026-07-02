@@ -8,7 +8,10 @@
   </head>
   <body>
     <main class="app">
-      <h1>Continue it</h1>
+      <div class="head">
+      <img id="iconImg" src="./assets/icon.png" alt="icon">
+      <h1 id="nameHeading">Continue it</h1>
+</div>
       <p class="subtitle">Production handoff controls across Claude, ChatGPT, Gemini, Grok, Perplexity, and more.</p>
 
       <section class="panel stats-grid">
@@ -53,12 +56,13 @@
       </section>
 
       <section class="panel">
+        <p id="status" class="status"></p>
         <h2>AI summary mode</h2>
         <p class="field-label">Choose how the export summary is generated.</p>
         <div class="radio-group">
           <label class="radio-option"><input type="radio" name="aiMode" value="none" /> <span><strong>No AI</strong> — local, free, private, works offline</span></label>
-          <label class="radio-option"><input type="radio" name="aiMode" value="server" /> <span><strong>Server AI</strong> — smarter summaries, 5 free exports / 24h</span></label>
-          <label class="radio-option"><input type="radio" name="aiMode" value="byok" /> <span><strong>Your own API key</strong> — unlimited, uses your free provider</span></label>
+          <label class="radio-option"><input type="radio" name="aiMode" value="server" /> <span><strong>Server AI</strong> — better, 5 free exports / 24h</span></label>
+          <label class="radio-option"><input type="radio" name="aiMode" value="byok" /> <span><strong>Custom API key</strong> — unlimited, free providers</span></label>
         </div>
 
         <div id="serverSettings" class="subpanel" hidden>
@@ -103,7 +107,7 @@
         <button id="clearSaved" type="button" class="danger">Clear saved handoff</button>
       </section>
 
-      <p id="status" class="status"></p>
+      
     </main>
     <script src="shared-handoff.js"></script>
     <script src="shared-ai.js"></script>
