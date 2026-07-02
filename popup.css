@@ -6,12 +6,11 @@ body {
   color: #0f172a;
 }
 
-#iconImg{
-width: 50px;
-
+#iconImg {
+  width: 50px;
 }
 
-.head{
+.head {
   display: flex;
   align-items: center;
   margin-bottom: 10px;
@@ -149,6 +148,30 @@ button.danger:disabled {
   color: #475467;
 }
 
+.save-feedback {
+  min-height: 16px;
+  margin: 8px 0 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: transparent;
+  transition:
+    color 0.15s ease,
+    opacity 0.3s ease;
+  opacity: 0;
+}
+
+.save-feedback.visible {
+  opacity: 1;
+}
+
+.save-feedback.success {
+  color: #067647;
+}
+
+.save-feedback.warning {
+  color: #b54708;
+}
+
 .radio-group {
   display: flex;
   flex-direction: column;
@@ -246,4 +269,8 @@ button.danger:disabled {
   background: #fee2e2;
   color: #991b1b;
   border: 1px solid #fecaca;
+}
+
+select:hover {
+  cursor: pointer;
 }

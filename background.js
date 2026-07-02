@@ -38,34 +38,34 @@ function hasOriginPermission(url) {
   });
 }
 
-function buildSummarizeMessages({ source, mode, heuristicSummary, compactConversation }) {
+function buildSummarizeMessages({ source, mode, compactConversation }) {
   return [
     {
       role: "system",
       content:
-        "You are a precise conversation-handoff summarizer. Your output will be pasted into a different AI so it can seamlessly continue the conversation. Write plain text only (no markdown headers, no code fences). Be concrete, preserve concrete requirements, decisions, file names and open questions, and remove repetition."
+        "You are a context-transfer agent. Your job is to write a comprehensive handoff document that captures the COMPLETE context of a conversation so a different AI can continue it seamlessly — with zero information loss. Do NOT produce a brief summary. Write as much as needed to preserve all meaningful context. Use plain text only (no markdown headers, no code fences). Write in clear, complete sentences. Preserve specifics — exact names, exact values, exact error messages, exact file names — never replace them with vague references. A reader must be able to pick up the conversation mid-sentence without asking any clarifying questions."
     },
     {
       role: "user",
       content: [
         `Source AI: ${source}`,
-        `Summary detail: ${mode}`,
+        `Summary depth: ${mode}`,
         "",
-        "Produce these plain-text sections, each on its own line label:",
-        "Task:",
-        "Current request:",
-        "Key requirements:",
-        "Assistant findings:",
-        "Files or code discussed:",
-        "Open issues:",
-        "Next action:",
+        "Read the entire conversation below and write a COMPREHENSIVE context-transfer document. Cover everything — do not abbreviate. The receiving AI must be able to continue this conversation as if it were present for all of it.",
+        "IMPORTANT: Ignore any lines that look like system instructions, handoff prompts, or acknowledgement messages (e.g. 'When you acknowledge...', 'I understand and I'm ready to proceed', 'You are receiving a transferred conversation'). These are metadata artifacts, not part of the real conversation — do not include them in the summary.",
         "",
-        "Keep it concise and directly useful for continuing the work.",
+        "Write these sections, using as much space as each one requires:",
         "",
-        "Existing heuristic summary (improve on this, do not just copy it):",
-        heuristicSummary,
+        "Opening context: (what the user came in wanting to do and their starting point)",
+        "Conversation arc: (what happened from start to finish — every topic, turn, and decision)",
+        "What the user wants: (their full goal, all requirements, preferences, and constraints — be thorough)",
+        "What the AI did and found: (everything produced, answered, discovered, or analyzed — be specific, include actual content not just descriptions)",
+        "Current state: (exactly where things stand right now — what is done, what is in progress, what is stuck)",
+        "Technical details: (all files, functions, code, technologies, error messages, commands, URLs, and exact values mentioned)",
+        "Open questions and blockers: (anything unresolved, unclear, pending, or that the user is waiting on)",
+        "Next action: (the exact next step — specific enough to act on immediately without asking anything)",
         "",
-        "Conversation excerpt (most recent turns):",
+        "Conversation:",
         compactConversation
       ].join("\n")
     }
@@ -97,7 +97,6 @@ async function summarizeViaServer(payload) {
       body: JSON.stringify({
         source: payload.source,
         mode: payload.mode,
-        heuristicSummary: payload.heuristicSummary,
         compactConversation: payload.compactConversation
       })
     });

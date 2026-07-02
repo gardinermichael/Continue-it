@@ -173,15 +173,31 @@
   }
 
   function maxTokensForMode(mode) {
-    return mode === "short" ? 350 : mode === "detailed" ? 900 : 600;
+    return mode === "short" ? 800 : mode === "detailed" ? 2500 : 1500;
+  }
+
+  // Patterns that indicate a message is handoff metadata, not real conversation content.
+  const HANDOFF_MARKERS = [
+    "You are receiving a transferred conversation from another model.",
+    "Do NOT answer or continue the conversation now.",
+    "When you acknowledge, wait for the user's next instruction.",
+    "I understand and I'm ready to proceed.",
+    "Reply only with a short acknowledgement that you received the conversation"
+  ];
+
+  function isHandoffArtifact(text) {
+    if (!text || text.trim().length < 3) return true;
+    const t = text.trim();
+    return HANDOFF_MARKERS.some((marker) => t.includes(marker));
   }
 
   // Trim the raw transcript down to something a summarizer can chew on without
-  // blowing past context limits.
+  // blowing past context limits. Strips handoff preamble and scraping artifacts.
   function buildCompactConversation(messages, mode, shared) {
     const limit = mode === "short" ? 16 : mode === "detailed" ? 36 : 24;
-    const perMessage = mode === "short" ? 160 : mode === "detailed" ? 260 : 220;
+    const perMessage = mode === "short" ? 500 : mode === "detailed" ? 1000 : 700;
     return (messages || [])
+      .filter((message) => !isHandoffArtifact(message.text))
       .slice(-limit)
       .map((message) => `${message.role === "assistant" ? "Assistant" : "User"}: ${shared.truncateText(message.text, perMessage)}`)
       .join("\n\n");
@@ -241,7 +257,6 @@
     }
 
     const clientId = await getClientId();
-    const heuristicSummary = shared.buildSummary(messages, mode);
     const compactConversation = buildCompactConversation(messages, mode, shared);
 
     const response = await sendToWorker({
@@ -251,7 +266,6 @@
         source,
         mode,
         clientId,
-        heuristicSummary,
         compactConversation,
         maxTokens: maxTokensForMode(mode)
       }

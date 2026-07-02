@@ -239,7 +239,14 @@
       item.textContent = action.label;
       item.addEventListener("click", async () => {
         menu.classList.remove("open");
-        await action.onClick();
+        try {
+          await action.onClick();
+        } catch (error) {
+          console.error("[Continue It] Unhandled error in", action.label, error);
+          if (window.ContinueItUI && window.ContinueItUI.toast) {
+            window.ContinueItUI.toast(`Error in "${action.label}": ${error?.message || String(error)}`, "error", 8000);
+          }
+        }
       });
       menu.appendChild(item);
     });

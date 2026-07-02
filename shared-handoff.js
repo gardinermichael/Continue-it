@@ -191,7 +191,7 @@
     const step = Math.max(1, Math.floor(messages.length / config.timelinePoints));
     for (let index = 0; index < messages.length; index += step) {
       const message = messages[index];
-      points.push(`${message.role === "assistant" ? "Claude" : "User"}: ${truncateText(message.text, config.sentenceLength)}`);
+      points.push(`${message.role === "assistant" ? "Assistant" : "User"}: ${truncateText(message.text, config.sentenceLength)}`);
     }
 
     const lastMessage = messages[messages.length - 1];
@@ -534,22 +534,37 @@
       "Example: \"I understand and I'm ready to proceed.\""
     ].join("\n");
 
-    const conciseSummary = [
-      `Source AI: ${handoff.source || "Unknown"}`,
-      "",
-      "Conversation summary:",
-      handoff.summary,
-      "",
-      isClaudeTarget
-        ? `Whole-chat synthesis:\n${truncateText(comprehensiveDigestBlock.replace(/^Comprehensive whole-chat synthesis:\n?/, ""), 750)}`
-        : comprehensiveDigestBlock,
-      !isClaudeTarget && chunkDigestBlock ? `\n${truncateText(chunkDigestBlock, 1600)}` : "",
-      "",
-      "Recent conversation excerpt:",
-      compactTranscript,
-      "",
-      "When you acknowledge, wait for the user's next instruction."
-    ].filter(Boolean).join("\n");
+    const isAISummary = handoff.summarySource === "Server AI (backend API)" ||
+      handoff.summarySource === "Your own API key";
+
+    const conciseSummary = isAISummary
+      ? [
+          `Source AI: ${handoff.source || "Unknown"}`,
+          "",
+          "Conversation summary:",
+          handoff.summary,
+          "",
+          "Recent conversation excerpt:",
+          compactTranscript,
+          "",
+          "When you acknowledge, wait for the user's next instruction."
+        ].filter(Boolean).join("\n")
+      : [
+          `Source AI: ${handoff.source || "Unknown"}`,
+          "",
+          "Conversation summary (automatically extracted):",
+          handoff.summary,
+          "",
+          isClaudeTarget
+            ? `Whole-chat synthesis:\n${truncateText(comprehensiveDigestBlock.replace(/^Comprehensive whole-chat synthesis:\n?/, ""), 750)}`
+            : comprehensiveDigestBlock,
+          !isClaudeTarget && chunkDigestBlock ? `\n${truncateText(chunkDigestBlock, 1600)}` : "",
+          "",
+          "Recent conversation excerpt:",
+          compactTranscript,
+          "",
+          "When you acknowledge, wait for the user's next instruction."
+        ].filter(Boolean).join("\n");
 
     const singlePrompt = [
       ackPrefix,
@@ -589,6 +604,7 @@
       pageTitle: handoff.pageTitle,
       pageUrl: handoff.pageUrl,
       summaryMode: handoff.summaryMode,
+      summarySource: handoff.summarySource || null,
       summary: handoff.summary,
       warnings: handoff.warnings,
       stats: handoff.stats,

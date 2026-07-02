@@ -32,9 +32,21 @@ const resetChunksButton = document.getElementById("resetChunks");
 const downloadJsonButton = document.getElementById("downloadJson");
 const clearSavedButton = document.getElementById("clearSaved");
 const statusEl = document.getElementById("status");
+const saveAiFeedbackEl = document.getElementById("saveAiFeedback");
+
+let saveFeedbackTimer = null;
 
 function setStatus(message) {
   statusEl.textContent = message;
+}
+
+function showSaveFeedback(message, type = "success") {
+  if (saveFeedbackTimer) clearTimeout(saveFeedbackTimer);
+  saveAiFeedbackEl.textContent = message;
+  saveAiFeedbackEl.className = `save-feedback visible ${type}`;
+  saveFeedbackTimer = setTimeout(() => {
+    saveAiFeedbackEl.classList.remove("visible");
+  }, 4000);
 }
 
 function selectedAiMode() {
@@ -193,16 +205,19 @@ saveAiButton.addEventListener("click", async () => {
 
   if (mode === ai.AI_MODES.none) {
     await ai.saveSettings({ mode });
-    setStatus("Using local summaries (no AI). No key or server needed.");
+    showSaveFeedback("✓ Saved — using local summaries (no AI).");
     return;
   }
 
   if (mode === ai.AI_MODES.server) {
     await ai.saveSettings({ mode });
     const granted = await ai.requestOriginPermission(ai.DEFAULT_SERVER_URL);
-    setStatus(granted
-      ? "Server AI enabled. 5 free exports every 24 hours."
-      : "Saved, but permission to reach the server was not granted — AI summaries will fall back to local until you allow it.");
+    showSaveFeedback(
+      granted
+        ? "✓ Saved — Server AI enabled. 5 free exports every 24 hours."
+        : "⚠ Saved, but server permission not granted — allow it to use AI summaries.",
+      granted ? "success" : "warning"
+    );
     return;
   }
 
@@ -211,14 +226,17 @@ saveAiButton.addEventListener("click", async () => {
   const model = byokModelEl.value.trim();
   const apiKey = byokApiKeyEl.value.trim();
   if (!baseUrl || !model || !apiKey) {
-    setStatus("Enter a base URL, model, and API key first.");
+    showSaveFeedback("⚠ Enter a base URL, model, and API key first.", "warning");
     return;
   }
   await persistByok();
   const granted = await ai.requestOriginPermission(baseUrl);
-  setStatus(granted
-    ? "Your API key is saved. Unlimited AI summaries enabled."
-    : `Saved, but access to ${baseUrl} was not granted — click Save again and allow it so summaries can be generated.`);
+  showSaveFeedback(
+    granted
+      ? "✓ Saved — API key active. Unlimited AI summaries enabled."
+      : `⚠ Saved, but access to ${baseUrl} was not granted — click Save again and allow it.`,
+    granted ? "success" : "warning"
+  );
 });
 
 function setTestStatus(message, state) {

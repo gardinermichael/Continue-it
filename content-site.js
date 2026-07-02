@@ -653,7 +653,24 @@
     modal.content.querySelector("#continue-it-close").addEventListener("click", () => modal.close());
   }
 
+  function isContextInvalidated(error) {
+    return error && typeof error.message === "string" && error.message.toLowerCase().includes("extension context invalidated");
+  }
+
   async function exportConversation() {
+    try {
+      return await _exportConversation();
+    } catch (error) {
+      console.error("[Continue It] Export failed:", error);
+      if (isContextInvalidated(error)) {
+        ui.toast("Extension was reloaded — please refresh this page (F5), then try again.", "error", 8000);
+      } else {
+        ui.toast(`Export failed: ${error?.message || String(error)}`, "error", 8000);
+      }
+    }
+  }
+
+  async function _exportConversation() {
     const { messages, diagnostics, rawCandidates } = await captureConversation();
     if (!messages.length) {
       ui.toast(`No ${provider.name} messages found on this page.`, "error");
@@ -717,12 +734,21 @@
   }
 
   async function importConversation() {
-    const handoff = await shared.getHandoff();
-    if (!handoff) {
-      ui.toast("No saved handoff found. Export from any supported AI first.", "error");
-      return;
+    try {
+      const handoff = await shared.getHandoff();
+      if (!handoff) {
+        ui.toast("No saved handoff found. Export from any supported AI first.", "error");
+        return;
+      }
+      await openImportModal(handoff);
+    } catch (error) {
+      console.error("[Continue It] Import failed:", error);
+      if (isContextInvalidated(error)) {
+        ui.toast("Extension was reloaded — please refresh this page (F5), then try again.", "error", 8000);
+      } else {
+        ui.toast(`Import failed: ${error?.message || String(error)}`, "error", 8000);
+      }
     }
-    await openImportModal(handoff);
   }
 
   function getLauncherAnchor() {

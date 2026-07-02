@@ -169,7 +169,7 @@
 
     const primaryTask = truncateText(userMessages[0]?.text || userMessages[userMessages.length - 1]?.text || "Unknown task.", config.sentenceLength);
     const currentRequest = truncateText(userMessages[userMessages.length - 1]?.text || "No current user request captured.", config.sentenceLength);
-    const latestAssistantState = truncateText(assistantMessages[assistantMessages.length - 1]?.text || "No Claude response captured.", config.sentenceLength);
+    const latestAssistantState = truncateText(assistantMessages[assistantMessages.length - 1]?.text || "No assistant response captured.", config.sentenceLength);
 
     const requirementKeywords = ["want", "need", "must", "should", "build", "create", "summary", "context", "continue", "button", "extension", "import", "export", "chrome", "chatgpt", "claude"];
     const progressKeywords = ["built", "fixed", "updated", "added", "created", "implemented", "working", "reload", "tested", "patched", "switched"];
