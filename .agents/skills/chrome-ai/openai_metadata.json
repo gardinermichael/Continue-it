@@ -1,0 +1,10 @@
+{
+  "platform": "openai",
+  "name": "chrome-ai",
+  "version": "1.0.0",
+  "created_with": "skill-seekers",
+  "model": "gpt-4o",
+  "tools": [
+    "file_search"
+  ]
+}

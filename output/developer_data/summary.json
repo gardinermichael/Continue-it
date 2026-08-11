@@ -1,0 +1,17 @@
+{
+  "name": "developer",
+  "total_pages": 2,
+  "base_url": "https://developer.chrome.com/docs/extensions/ai",
+  "llms_txt_detected": false,
+  "llms_txt_variant": null,
+  "pages": [
+    {
+      "title": "Extensions and AI | Chrome for Developers",
+      "url": "https://developer.chrome.com/docs/extensions/ai"
+    },
+    {
+      "title": "Build extensions with coding agents | Extensions and AI | Chrome for Developers",
+      "url": "https://developer.chrome.com/docs/extensions/ai/build-with-ai"
+    }
+  ]
+}

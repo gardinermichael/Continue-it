@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "skills": {
+    "built-in-ai": {
+      "source": "googlechromelabs/web-ai-demos",
+      "sourceType": "github",
+      "skillPath": "built-in-ai-skills-md-agent-md/SKILL.md",
+      "computedHash": "2a79383534f6b459a8278f19c68526a9096a44f1d5cdff1771d004e1ecad708f"
+    },
+    "chrome-extensions": {
+      "source": "GoogleChrome/modern-web-guidance",
+      "sourceType": "github",
+      "skillPath": "skills/chrome-extensions/SKILL.md",
+      "computedHash": "1373f573799adad2a98c158b0c1a068e9f3bdef07c728b55b2be3f1c8ae0c2b0"
+    },
+    "to-spec": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/engineering/to-spec/SKILL.md",
+      "computedHash": "7e07d4cfabd1a4f61627ebe2705601784fae7b9aca7e13af3e201ace75738200"
+    }
+  }
+}

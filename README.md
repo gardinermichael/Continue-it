@@ -108,7 +108,9 @@ If an AI request ever fails (rate limit, bad key, network), the extension automa
 
 Chrome built-in AI uses Chrome's `LanguageModel` API from the extension background service worker. It requires a supported desktop Chrome installation and the on-device model may need to download the first time it is used. No provider key is stored and no backend server is contacted.
 
-If Chrome reports that built-in AI is unavailable, Continue it falls back to the local heuristic summary and records a warning in the handoff.
+Continue it uses the Prompt API instead of Chrome's task-specific `Summarizer` API for this mode because handoffs need comprehensive context transfer, not a short TLDR, headline, or limited bullet list. Chrome's `Summarizer` API is also not available in Web Workers right now, so it does not fit the existing MV3 background-service-worker request flow.
+
+If Chrome reports that built-in AI is unavailable, or if the conversation is too large for the on-device model context window, Continue it falls back to the local heuristic summary and records a warning in the handoff.
 
 ### Your own API key — free OpenAI-compatible providers
 
@@ -242,7 +244,7 @@ host permission and makes the cross-origin request:
 ```js
 // content-site.js → shared-ai.js → background.js
 chrome.runtime.sendMessage({ type: "continueIt.summarize", payload }, cb)
-// → Chrome built-in AI: LanguageModel.create(...).prompt(...)
+// → Chrome built-in AI: LanguageModel.create(...).promptStreaming(...)
 // → Server AI: POST <serverUrl>/api/summarize   (with x-continue-it-client header)
 // → Your key:  POST <baseUrl>/chat/completions  (Authorization: Bearer <key>)
 

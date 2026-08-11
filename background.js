@@ -82,6 +82,59 @@ function isUnavailableAvailability(value) {
   return value === "unavailable" || value === "no";
 }
 
+function isContextLimitError(error) {
+  return error?.name === "QuotaExceededError" || /quota|context/i.test(error?.message || "");
+}
+
+async function chromeBuiltInCreateOptions(baseOptions) {
+  if (typeof LanguageModel.params !== "function") {
+    return baseOptions;
+  }
+
+  try {
+    const params = await LanguageModel.params();
+    const defaultTemperature = Number.isFinite(params?.defaultTemperature) ? params.defaultTemperature : 1;
+    const maxTemperature = Number.isFinite(params?.maxTemperature) ? params.maxTemperature : defaultTemperature;
+    const topK = Number.isFinite(params?.defaultTopK) ? params.defaultTopK : undefined;
+    const temperature = Math.min(defaultTemperature, maxTemperature, 0.7);
+
+    if (Number.isFinite(topK) && Number.isFinite(temperature)) {
+      return { ...baseOptions, topK, temperature };
+    }
+  } catch (error) {
+    console.warn("[Continue It] Could not read Chrome built-in AI model params.", error);
+  }
+
+  return baseOptions;
+}
+
+async function logChromeBuiltInContextUsage(session, prompt) {
+  if (typeof session.measureContextUsage !== "function") {
+    return;
+  }
+
+  try {
+    const usage = await session.measureContextUsage(prompt);
+    const windowSize = session.contextWindow || "unknown";
+    console.log(`[Continue It] Chrome built-in AI prompt context usage: ${usage}/${windowSize}`);
+  } catch (error) {
+    console.warn("[Continue It] Could not measure Chrome built-in AI context usage.", error);
+  }
+}
+
+async function collectChromeBuiltInPrompt(session, prompt) {
+  if (typeof session.promptStreaming !== "function") {
+    return session.prompt(prompt);
+  }
+
+  let response = "";
+  const stream = session.promptStreaming(prompt);
+  for await (const chunk of stream) {
+    response += chunk;
+  }
+  return response;
+}
+
 async function summarizeViaChromeBuiltIn(payload) {
   if (!globalThis.LanguageModel) {
     return {
@@ -114,8 +167,9 @@ async function summarizeViaChromeBuiltIn(payload) {
   }
 
   let session = null;
+  let contextOverflowed = false;
   try {
-    session = await LanguageModel.create({
+    const createOptions = await chromeBuiltInCreateOptions({
       ...languageOptions,
       initialPrompts: [{ role: "system", content: SUMMARY_SYSTEM_PROMPT }],
       monitor(monitor) {
@@ -125,12 +179,39 @@ async function summarizeViaChromeBuiltIn(payload) {
         });
       }
     });
-    const summary = (await session.prompt(buildSummaryPrompt(payload))).trim();
+    session = await LanguageModel.create(createOptions);
+    if (typeof session.addEventListener === "function") {
+      session.addEventListener("contextoverflow", () => {
+        contextOverflowed = true;
+        console.warn("[Continue It] Chrome built-in AI context overflowed; some prompt context may be dropped.");
+      });
+    }
+
+    const prompt = buildSummaryPrompt(payload);
+    await logChromeBuiltInContextUsage(session, prompt);
+
+    const summary = (await collectChromeBuiltInPrompt(session, prompt)).trim();
     if (!summary) {
       return { ok: false, used: true, summary: null, error: "Chrome built-in AI returned an empty summary." };
     }
+    if (contextOverflowed) {
+      return {
+        ok: false,
+        used: true,
+        summary: null,
+        error: "Chrome built-in AI could not fit the full conversation in its context window. Use Server AI or Custom API key for this larger handoff."
+      };
+    }
     return { ok: true, used: true, summary, quota: null, error: null };
   } catch (error) {
+    if (isContextLimitError(error)) {
+      return {
+        ok: false,
+        used: true,
+        summary: null,
+        error: "Chrome built-in AI could not fit the full conversation in its context window. Use Server AI or Custom API key for this larger handoff."
+      };
+    }
     return { ok: false, used: true, summary: null, error: `Chrome built-in AI failed: ${error?.message || String(error)}` };
   } finally {
     if (session) {
