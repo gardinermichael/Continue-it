@@ -61,11 +61,13 @@
         <p class="field-label">Choose how the export summary is generated.</p>
         <div class="radio-group">
           <label class="radio-option"><input type="radio" name="aiMode" value="none" /> <span><strong>No AI</strong> — local, free, private, works offline</span></label>
-          <label class="radio-option"><input type="radio" name="aiMode" value="server" /> <span><strong>Server AI</strong> — better, 5 free exports / 24h</span></label>
+          <label class="radio-option"><input type="radio" name="aiMode" value="server" /> <span><strong>Server AI</strong> — use a configured backend</span></label>
           <label class="radio-option"><input type="radio" name="aiMode" value="byok" /> <span><strong>Custom API key</strong> — unlimited, free providers</span></label>
         </div>
 
         <div id="serverSettings" class="subpanel" hidden>
+          <label class="field-label" for="serverUrl">Server URL</label>
+          <input id="serverUrl" type="text" placeholder="http://localhost:8787" />
           <p id="quotaInfo" class="hint"></p>
         </div>
 

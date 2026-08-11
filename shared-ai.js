@@ -132,7 +132,7 @@
     const mode = AI_MODES[result[STORAGE_KEYS.mode]] || DEFAULT_MODE;
     return {
       mode,
-      serverUrl: DEFAULT_SERVER_URL,
+      serverUrl: result[STORAGE_KEYS.serverUrl] || DEFAULT_SERVER_URL,
       byok: {
         provider: result[STORAGE_KEYS.byokProvider] || "openrouter",
         baseUrl: result[STORAGE_KEYS.byokBaseUrl] || "",
@@ -147,6 +147,9 @@
     const payload = {};
     if (settings.mode !== undefined) {
       payload[STORAGE_KEYS.mode] = AI_MODES[settings.mode] || DEFAULT_MODE;
+    }
+    if (settings.serverUrl !== undefined) {
+      payload[STORAGE_KEYS.serverUrl] = settings.serverUrl || DEFAULT_SERVER_URL;
     }
     if (settings.byok) {
       if (settings.byok.provider !== undefined) {

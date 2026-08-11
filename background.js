@@ -74,7 +74,8 @@ function buildSummarizeMessages({ source, mode, compactConversation }) {
 
 // --- Shared backend (sarvam AI) 
 async function summarizeViaServer(payload) {
-  const serverUrl = DEFAULT_SERVER_URL.replace(/\/$/, "");
+  const stored = await getStorage([AI_STORAGE_KEYS.serverUrl]);
+  const serverUrl = (stored[AI_STORAGE_KEYS.serverUrl] || DEFAULT_SERVER_URL).replace(/\/$/, "");
   const url = `${serverUrl}/api/summarize`;
 
   if (!(await hasOriginPermission(serverUrl))) {

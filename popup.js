@@ -12,6 +12,7 @@ const summaryModeEl = document.getElementById("summaryMode");
 
 const aiModeRadios = Array.from(document.querySelectorAll('input[name="aiMode"]'));
 const serverSettingsEl = document.getElementById("serverSettings");
+const serverUrlEl = document.getElementById("serverUrl");
 const quotaInfoEl = document.getElementById("quotaInfo");
 const byokSettingsEl = document.getElementById("byokSettings");
 const providerSelectEl = document.getElementById("providerSelect");
@@ -62,7 +63,7 @@ function updateModeVisibility() {
 
 function renderQuota(quota) {
   if (!quota) {
-    quotaInfoEl.textContent = "You get 5 free server summaries every 24 hours.";
+    quotaInfoEl.textContent = "Use a hosted backend or run your own local backend with a provider key in .env.";
     quotaInfoEl.className = "hint";
     return;
   }
@@ -105,6 +106,7 @@ async function loadAiSettings() {
   aiModeRadios.forEach((radio) => {
     radio.checked = radio.value === settings.mode;
   });
+  serverUrlEl.value = settings.serverUrl || ai.DEFAULT_SERVER_URL;
   populateProviders(settings.byok.provider);
   byokBaseUrlEl.value = settings.byok.baseUrl || "";
   byokModelEl.value = settings.byok.model || "";
@@ -210,11 +212,12 @@ saveAiButton.addEventListener("click", async () => {
   }
 
   if (mode === ai.AI_MODES.server) {
-    await ai.saveSettings({ mode });
-    const granted = await ai.requestOriginPermission(ai.DEFAULT_SERVER_URL);
+    const serverUrl = serverUrlEl.value.trim() || ai.DEFAULT_SERVER_URL;
+    await ai.saveSettings({ mode, serverUrl });
+    const granted = await ai.requestOriginPermission(serverUrl);
     showSaveFeedback(
       granted
-        ? "✓ Saved — Server AI enabled. 5 free exports every 24 hours."
+        ? "✓ Saved — Server AI enabled for the configured backend."
         : "⚠ Saved, but server permission not granted — allow it to use AI summaries.",
       granted ? "success" : "warning"
     );

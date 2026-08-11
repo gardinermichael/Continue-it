@@ -98,7 +98,7 @@ Pick a mode in the popup under **AI summary mode**. All three produce the same p
 | Mode | Quality | Cost | Privacy | Setup |
 |---|---|---|---|---|
 | **No AI** (default) | Good (local heuristic) | Free | Fully local, offline | None |
-| **Server AI** | Better (real LLM) | Free, **5 exports / 24h** | Summary sent to the shared backend | None for the user |
+| **Server AI** | Better (real LLM) | Depends on configured backend | Summary sent to the configured backend | A hosted backend, or your own local backend with a `.env` key |
 | **Your own API key** | Best (any model you like) | Free on the providers below | Summary sent to your chosen provider | Paste a key |
 
 If an AI request ever fails (rate limit, bad key, network), the extension automatically falls back to the local summary and adds a warning — an export never breaks.
@@ -118,9 +118,13 @@ Any OpenAI-compatible endpoint works. Create a key (most need no credit card), p
 
 Free-tier limits change often — verify the current numbers on each provider's site. Keys are stored only in `chrome.storage.local` on your machine and are sent only to the provider you configured.
 
-### Server AI — running the shared backend (for maintainers)
+### Server AI — running or using a backend
 
-The Server AI mode lets you offer smart summaries to users without them needing a key, capped at **5 exports per 24h per user** (by anonymous client id + IP) so it stays cheap.
+Server AI is not bundled into the Chrome extension. The extension sends summary requests to a separate backend URL, and that backend uses a provider key from its own environment.
+
+Users do not need to enter an API key only when they are pointed at a backend already operated by someone else. If you run the backend locally, you must provide your own key in `.env`. Do not put a shared provider key in the extension files; extension source is inspectable by users.
+
+The included backend caps requests at **5 exports per 24h per user** (by anonymous client id + IP) so a maintainer-operated deployment can control cost.
 
 ```bash
 cd server            # from the repo root
@@ -139,7 +143,7 @@ DAILY_LIMIT=5                       # exports per window
 RATE_WINDOW_HOURS=24
 ```
 
-Then set the **Server URL** in the popup (default `http://localhost:8787`) and choose **Server AI**. Deploy the server anywhere (Render, Railway, Fly, a VPS) and point the popup at that URL.
+Then set the **Server URL** in the popup (default `http://localhost:8787`) and choose **Server AI**. To offer Server AI to other users without asking them for provider keys, deploy the server anywhere (Render, Railway, Fly, a VPS), configure provider secrets in that hosting environment, and tell users to point the popup at that URL.
 
 > The in-memory rate limiter is per-instance and resets on restart. For a hardened multi-instance deployment, back it with Redis or a database.
 
