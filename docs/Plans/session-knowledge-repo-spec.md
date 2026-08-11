@@ -42,6 +42,22 @@ source_files:
   - "https://deepwiki.com/V-Gutierrez/browser-llm-lab"
   - "https://deepwiki.com/oliuntangled/webmcp-gen"
   - "https://deepwiki.com/airwomandivanbed693/gemini-nano-chrome"
+  - "https://deepwiki.com/kirillpolevoy/relai"
+  - "https://deepwiki.com/FdezRomero/chatgpt-exporter"
+  - "https://deepwiki.com/Edmon02/bookmark-ai-organizer"
+  - "https://deepwiki.com/Superkikim/nexus-ai-chat-importer"
+  - "https://deepwiki.com/daugaard47/ChatGPT_Conversations_To_Markdown"
+  - "https://deepwiki.com/Lling0000/SiftMarks"
+  - "https://deepwiki.com/Vineetpandey0/Context-Sync"
+  - "https://deepwiki.com/rathi-yash/MindVault-AI-Bookmarker"
+  - "https://deepwiki.com/andrewjtyo-glitch/context-anchor"
+  - "https://deepwiki.com/LumenHelixLab/promptPACK"
+  - "https://deepwiki.com/redzumi/ai-ai-bookmarks"
+  - "https://deepwiki.com/ooye-sanket/Deja-vu"
+  - "https://deepwiki.com/kyruntime/bookmark-organizer"
+  - "https://deepwiki.com/ndg8743/TabBrain"
+  - "https://deepwiki.com/khoj-ai/khoj"
+  - "https://deepwiki.com/zhaoliangbin42/AI-MarkDone"
 ---
 
 # Session Knowledge Repository Export Spec
@@ -438,6 +454,62 @@ Implementation lessons to carry forward:
   annotations and human confirmation, especially if future tools can commit,
   upload, delete, or rewrite wiki files.
 
+## Bookmark, Reference, and Context Lessons
+
+The bookmark, tab, ChatGPT export, and personal-search systems point to a
+broader artifact model. Continue it should not treat an AI chat transcript as
+the only source worth preserving. A session folder should be able to carry the
+conversation, referenced URLs, bookmarks, visible tabs, source annotations,
+attachments, generated files, and context filters that shaped the session.
+
+Implementation lessons to carry forward:
+
+- Use dual exports by default: structured JSON for machines and readable
+  Markdown for GitHub/Obsidian review.
+- Add top-level and per-session indexes. A session folder can be self-contained,
+  but a repo-level `index.json`, `metadata.json`, or manifest makes incremental
+  processing practical.
+- Treat references as first-class objects with normalized URL, title,
+  description, domain, favicon, tags, source page, capture timestamp, and
+  extraction method.
+- Normalize URLs before deduplication. Strip obvious tracking noise and account
+  for protocol/trailing-slash differences while preserving the original URL.
+- Preserve attachments with relative links from Markdown. Images, audio,
+  documents, generated code, and tool outputs belong in `produced/` or
+  `references/` with manifest entries.
+- Add source-bound annotations as sidecars. Highlights, comments, message
+  bookmarks, and reader notes should point back to stable message/reference ids
+  rather than modifying raw transcript files.
+- Prefer API-derived or canonical data when available. DOM capture is necessary
+  for live AI chat pages, but a canonical snapshot layer should shield export,
+  reader, bookmark, and word-count features from DOM churn.
+- Keep the background/offscreen layer as the write authority for sensitive
+  storage writes. Content scripts should submit capture intents and snapshots,
+  not own final persistent writes.
+- Use local-first semantic search where possible. Small embeddings or local
+  browser models can rank references, bookmarks, and summaries without sending
+  private browsing context to a provider.
+- Support hybrid search later: keyword/FTS for exact filenames, domains, and
+  errors; embeddings for semantic retrieval; tags and project filters for user
+  control.
+- Add review gates before destructive or structural changes. Reorganizing
+  bookmarks, rewriting project pages, restoring backups, or applying AI
+  refactors should use virtual previews and explicit approval.
+- Create backups before mutating user-controlled knowledge stores. Git history is
+  useful, but an export/import JSON backup gives users a separate recovery path.
+- Track incremental export state: new, changed, skipped, unavailable,
+  permanently unavailable, retried, and failed.
+- Keep privacy labels on every generated artifact. Record whether it was local,
+  sent to BYOK, sent to Server AI, or produced from an external metadata service.
+- Use state anchors for long conversations. A compact, approved anchor with
+  persona/role, current state, key artifacts, constraints, and next action can
+  become the continuously updated `handoff.md`.
+- Treat prompt packs as first-class produced artifacts. Prompt compression,
+  must-fact preservation, and structured handoff packets should be saved under
+  `produced/` with their source transcript chunk ids.
+- For RAG sessions, save the retrieved context. Exported answers should identify
+  which notes, bookmarks, tabs, or references were used to generate them.
+
 ## Out of Scope
 
 - Building a full autonomous research agent inside the extension.
@@ -497,6 +569,22 @@ MV3 extension architecture and existing handoff workflow.
 | `V-Gutierrez/browser-llm-lab` | Browser LLM labs show backend switching, availability guardrails, download progress, params inspection, streaming, JSON-mode experiments, and explicit session destruction. | Record backend, params, availability, prompt mode, and guardrail status in manifests; destroy sessions after generation. |
 | `oliuntangled/webmcp-gen` | WebMCP benefits from generated typed tool definitions, schemas, annotations, compatibility shims, and human-in-the-loop security. | Future WebMCP export tools should be generated from typed schemas and mark mutating actions as confirmation-required. |
 | `airwomandivanbed693/gemini-nano-chrome` | Simple MV3 Gemini Nano examples separate popup UI from background AI orchestration and stream chunks back over extension messaging. | Keep UI responsive by routing generation through background/offscreen logic and sending progress events without persisting partial output as final. |
+| `kirillpolevoy/relai` | Local AI chat transfer tools benefit from IndexedDB persistence, JSON backup/restore, vanilla MV3 architecture, and platform-specific extractors. | Consider IndexedDB for larger local staging; keep JSON backup/restore separate from GitHub sync. |
+| `FdezRomero/chatgpt-exporter` | Robust chat backup uses both per-conversation JSON and Markdown, a top-level `metadata.json`, an `index.json`, incremental mode, attachment handling, retries, and unavailable-file tracking. | Add top-level export metadata and incremental processing state; preserve attachments with relative paths and retry/unavailable markers. |
+| `Edmon02/bookmark-ai-organizer` | Bookmark organization should generate folder/tag suggestions while keeping state local and surfacing AI-provider dependence. | Treat bookmark/reference categorization as suggested metadata, not automatic truth; store provider and confidence. |
+| `Superkikim/nexus-ai-chat-importer` | Importers need provider adapters, a standardized conversation model, attachment handling, smart dedupe, selective import, detailed reports, and Obsidian-friendly Markdown. | Define `StandardConversation`-style normalized session objects and write import reports beside exported artifacts. |
+| `daugaard47/ChatGPT_Conversations_To_Markdown` | Chat exports should support local browser or script conversion, YAML frontmatter, folder-per-conversation organization, multimodal attachments, and alternate date/category layouts. | Keep Markdown exports frontmatter-rich and attachment-aware; allow alternate repo views without moving immutable raw files. |
+| `Lling0000/SiftMarks` | Local-first bookmark knowledge can use SQLite, CLI/web/extension/MCP entry points, AI summaries/tags/embeddings, FTS plus vector hybrid search, and review-first cleanup suggestions. | Future knowledge repo tooling can expose an MCP/search layer and use hybrid search over sessions, bookmarks, and references. |
+| `Vineetpandey0/Context-Sync` | Cross-platform AI chat transfer works best with a normalized capsule schema, local storage, searchable saved conversations, and optional compression that preserves code blocks. | Add a capsule-style session interchange format and compression rules that keep code/tool output verbatim. |
+| `rathi-yash/MindVault-AI-Bookmarker` | Bookmark clustering can extract title/description/domain metadata, embed content, cluster with semantic similarity, and label groups while allowing user correction. | Add reference metadata fields and optional local categorization/tagging with user-editable labels. |
+| `andrewjtyo-glitch/context-anchor` | Long chats can be stabilized with approved state anchors containing persona, current state, key artifacts, constraints, and next action, then rebooted into new sessions. | Make `handoff.md` an anchor-derived artifact and store approved anchor history with ids and timestamps. |
+| `LumenHelixLab/promptPACK` | Local-first prompt compression should be objective-aware and preserve must-keep facts while producing structured handoff packets. | Add prompt-pack artifacts under `produced/` and record preserved facts plus source chunk ids in the manifest. |
+| `redzumi/ai-ai-bookmarks` | AI bookmark refactors should be virtual-first, approval-gated, backup-first, and provider-abstracted through tool-calling agents. | Require preview/approval and backup before applying structural wiki/bookmark reorganizations. |
+| `ooye-sanket/Deja-vu` | Local semantic bookmark search can run in an MV3 background worker using a small local embeddings model, structured bookmark metadata, tags, and similarity ranking. | Support local semantic search indexes over references without making network calls by default. |
+| `kyruntime/bookmark-organizer` | Bookmark agents need full-tree capture, parent-child JSON, domain clustering, URL normalization, propose-confirm-execute flow, backups, and rollback. | Use explicit tree schemas for bookmark/reference hierarchies and require backups before destructive reorganizations. |
+| `ndg8743/TabBrain` | Tab/bookmark AI tools benefit from side panel UI, strict message contracts, typed domain objects, duplicate detection, window/topic metadata, retrying batch processors, and messy JSON parsers. | Add typed `TabInfo`/`ReferenceInfo` artifacts, duplicate checks, prompt builders, and robust AI response parsing. |
+| `khoj-ai/khoj` | Personal AI assistants should save retrieved context, support offline/online modes, export conversations, and use Git-like traces for query/response/system-prompt provenance. | For RAG-backed summaries, save retrieved notes/references and system prompts alongside the generated answer. |
+| `zhaoliangbin42/AI-MarkDone` | High-quality ChatGPT tooling uses canonical snapshots from provider graphs, background-as-write-authority, versioned runtime messages, immutable semantic models, source-bound annotations, and safe restore previews. | Add a canonical snapshot layer, versioned message protocol, annotation sidecars, and preview-before-restore semantics. |
 
 The likely first implementation slice is:
 

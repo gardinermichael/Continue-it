@@ -38,6 +38,9 @@ knowledge export spec.
     `.cursor`, `.github`, `.kilo`, `.roo`, and `output/`
 - Added `docs/Plans/session-knowledge-repo-spec.md`, a full implementation
   plan for exporting sessions to a Git-backed, Obsidian-friendly LLM wiki.
+- Expanded the export spec with lessons from bookmark organizers, AI chat
+  importers/exporters, context-anchor systems, tab organizers, prompt-packet
+  tools, and personal RAG/search systems.
 - Added `docs/Plans/README.md` and `docs/index.jsonl` to index repo-local
   planning docs.
 - Updated Chrome built-in AI summary handling in `background.js`:
@@ -84,7 +87,22 @@ small, reviewable slices.
   - `meta/` for manifests, changelogs, and health checks
 - The spec includes source matrices for DeepWiki research across AI chat
   exporters, Chrome AI implementations, WebMCP examples, repo packagers,
-  handoff systems, and autoresearch loops.
+  handoff systems, autoresearch loops, bookmark organizers, tab/context
+  systems, prompt-packet tools, and personal search/RAG systems.
+- The latest research pass added explicit guidance for:
+  - dual JSON/Markdown exports
+  - top-level indexes and metadata files
+  - first-class reference/bookmark objects
+  - URL normalization and deduplication
+  - attachment preservation with relative links
+  - source-bound annotation sidecars
+  - canonical snapshot layers
+  - background/offscreen write authority
+  - local semantic and hybrid search
+  - preview/approval gates for structural changes
+  - backups before destructive reorganizations
+  - RAG provenance capture
+  - state-anchor handoffs
 
 ## Review Checklist
 
@@ -94,6 +112,9 @@ small, reviewable slices.
 - Review `AGENTS.md` for repo governance and response-prefix expectations.
 - Review `docs/Plans/session-knowledge-repo-spec.md` for product direction and
   scope boundaries.
+- Review the spec's new bookmark/reference/context section and added matrix rows
+  for Relai, ChatGPT exporters, SiftMarks, Context-Sync, MindVault, Context
+  Anchor, promptPACK, TabBrain, Khoj, AI-MarkDone, and related bookmark tools.
 - Decide whether generated multi-tool skill mirrors under `.bob`, `.bolt`,
   `.cline`, `.cursor`, `.github`, `.kilo`, `.roo`, and `output/` should remain
   versioned in this repo or be moved/ignored later.
