@@ -11,6 +11,7 @@ const chunkProgressEl = document.getElementById("chunkProgress");
 const summaryModeEl = document.getElementById("summaryMode");
 
 const aiModeRadios = Array.from(document.querySelectorAll('input[name="aiMode"]'));
+const builtinSettingsEl = document.getElementById("builtinSettings");
 const serverSettingsEl = document.getElementById("serverSettings");
 const serverUrlEl = document.getElementById("serverUrl");
 const quotaInfoEl = document.getElementById("quotaInfo");
@@ -22,6 +23,7 @@ const byokBaseUrlEl = document.getElementById("byokBaseUrl");
 const byokModelEl = document.getElementById("byokModel");
 const byokApiKeyEl = document.getElementById("byokApiKey");
 const testStatusEl = document.getElementById("testStatus");
+const testBuiltInButton = document.getElementById("testBuiltIn");
 const testAiButton = document.getElementById("testAi");
 const saveAiButton = document.getElementById("saveAi");
 
@@ -57,6 +59,7 @@ function selectedAiMode() {
 
 function updateModeVisibility() {
   const mode = selectedAiMode();
+  builtinSettingsEl.hidden = mode !== ai.AI_MODES.builtin;
   serverSettingsEl.hidden = mode !== ai.AI_MODES.server;
   byokSettingsEl.hidden = mode !== ai.AI_MODES.byok;
 }
@@ -180,6 +183,8 @@ aiModeRadios.forEach((radio) => {
     await ai.saveSettings({ mode: selectedAiMode() });
     if (selectedAiMode() === ai.AI_MODES.none) {
       setStatus("Using local summaries (no AI).");
+    } else if (selectedAiMode() === ai.AI_MODES.builtin) {
+      setStatus("Using Chrome built-in AI when available on this device.");
     } else {
       setStatus('Fill in the details below, then click "Save AI settings".');
     }
@@ -208,6 +213,12 @@ saveAiButton.addEventListener("click", async () => {
   if (mode === ai.AI_MODES.none) {
     await ai.saveSettings({ mode });
     showSaveFeedback("✓ Saved — using local summaries (no AI).");
+    return;
+  }
+
+  if (mode === ai.AI_MODES.builtin) {
+    await ai.saveSettings({ mode });
+    showSaveFeedback("✓ Saved — Chrome built-in AI enabled when available.");
     return;
   }
 
@@ -247,6 +258,17 @@ function setTestStatus(message, state) {
   testStatusEl.className = "test-status" + (state ? ` ${state}` : "");
   testStatusEl.hidden = !message;
 }
+
+testBuiltInButton.addEventListener("click", async () => {
+  await ai.saveSettings({ mode: ai.AI_MODES.builtin });
+  setTestStatus("Testing Chrome built-in AI…", "");
+  const result = await ai.testConnection();
+  if (result && result.ok) {
+    setTestStatus("Chrome built-in AI is ready.", "ok");
+  } else {
+    setTestStatus(`Test failed: ${result ? result.error : "no response"}`, "error");
+  }
+});
 
 testAiButton.addEventListener("click", async () => {
   const mode = selectedAiMode();

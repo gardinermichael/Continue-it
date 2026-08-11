@@ -19,6 +19,7 @@
   // mode" (short/medium/detailed) used elsewhere.
   const AI_MODES = {
     none: "none", // Local heuristic only. Free, private, offline.
+    builtin: "builtin", // Chrome built-in Gemini Nano. Free, private, on-device when available.
     server: "server", // Shared backend. Rate limited to 5 exports / 24h.
     byok: "byok" // Bring your own OpenAI-compatible key. Unlimited.
   };
@@ -32,7 +33,7 @@
       id: "openrouter",
       name: "OpenRouter",
       baseUrl: "https://openrouter.ai/api/v1",
-      model: "meta-llama/llama-3.3-70b-instruct:free",
+      model: "google/gemma-4-26b-a4b-it:free",
       keyUrl: "https://openrouter.ai/keys",
       note: "20+ free models (pick one ending in :free). ~50 requests/day free, no card."
     },
@@ -290,7 +291,7 @@
   async function testConnection() {
     const settings = await getSettings();
     if (settings.mode === AI_MODES.none) {
-      return { ok: false, error: "Select Server AI or your own API key first." };
+      return { ok: false, error: "Select Chrome built-in AI, Server AI, or your own API key first." };
     }
     const clientId = await getClientId();
     return sendToWorker({ type: "continueIt.test", payload: { aiMode: settings.mode, clientId } });

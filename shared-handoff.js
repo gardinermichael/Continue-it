@@ -535,6 +535,7 @@
     ].join("\n");
 
     const isAISummary = handoff.summarySource === "Server AI (backend API)" ||
+      handoff.summarySource === "Chrome built-in AI" ||
       handoff.summarySource === "Your own API key";
 
     const conciseSummary = isAISummary

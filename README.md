@@ -15,7 +15,7 @@
 When you're deep in a conversation with Claude, ChatGPT, Gemini, Grok, or Perplexity and want to switch platforms (or start a fresh session while keeping context), Continue it:
 
 1. **Scrolls through and captures** your entire conversation history from the page DOM
-2. **Generates a summary** of the thread — task, requirements, decisions, blockers, files, timeline. Choose one of three modes: **local (no AI)**, **shared Server AI** (5 free/day), or **your own API key** (unlimited) — see [AI summaries](#ai-summaries-three-modes)
+2. **Generates a summary** of the thread — task, requirements, decisions, blockers, files, timeline. Choose one of four modes: **local (no AI)**, **Chrome built-in AI**, **Server AI**, or **your own API key** — see [AI summaries](#ai-summaries-four-modes)
 3. **Packages the context** into a prompt (or a sequence of chunks for long conversations) ready to paste into any target LLM
 4. **Tracks chunk progress** in the popup so you can send large transcripts in staged batches
 
@@ -82,26 +82,33 @@ Single prompt with header + summary + chunk digest + import instructions. Paste 
 | `continueIt.summaryMode` | Preferred verbosity level |
 | `continueIt.chunkCursor` | Per-handoff chunk index for staged imports |
 | `continueIt.handoffHistory` | Last 10 exports (metadata only) |
-| `continueIt.ai.mode` | AI summary mode: `none` / `server` / `byok` |
+| `continueIt.ai.mode` | AI summary mode: `none` / `builtin` / `server` / `byok` |
 | `continueIt.ai.serverUrl` | Shared backend URL (Server AI mode) |
 | `continueIt.ai.byokBaseUrl` / `byokModel` / `byokApiKey` / `byokProvider` | Your own provider config |
 | `continueIt.clientId` | Anonymous id used for the Server AI daily quota |
 
-Handoff data lives in `chrome.storage.local`. In **No AI** mode nothing ever leaves the browser. In **Server AI** / **Your own key** modes, a compacted summary of the conversation is sent to the endpoint you choose (see below).
+Handoff data lives in `chrome.storage.local`. In **No AI** mode nothing ever leaves the browser. In **Chrome built-in AI** mode, the compacted conversation is sent only to Chrome's on-device model when the API is available. In **Server AI** / **Your own key** modes, a compacted summary of the conversation is sent to the endpoint you choose (see below).
 
 ---
 
-## AI summaries (three modes)
+## AI summaries (four modes)
 
-Pick a mode in the popup under **AI summary mode**. All three produce the same portable handoff; they differ only in how the summary is written.
+Pick a mode in the popup under **AI summary mode**. All four produce the same portable handoff; they differ only in how the summary is written.
 
 | Mode | Quality | Cost | Privacy | Setup |
 |---|---|---|---|---|
 | **No AI** (default) | Good (local heuristic) | Free | Fully local, offline | None |
+| **Chrome built-in AI** | Better (Gemini Nano) | Free | On-device when available | Chrome 138+ on supported desktop hardware |
 | **Server AI** | Better (real LLM) | Depends on configured backend | Summary sent to the configured backend | A hosted backend, or your own local backend with a `.env` key |
 | **Your own API key** | Best (any model you like) | Free on the providers below | Summary sent to your chosen provider | Paste a key |
 
 If an AI request ever fails (rate limit, bad key, network), the extension automatically falls back to the local summary and adds a warning — an export never breaks.
+
+### Chrome built-in AI — no key, no backend
+
+Chrome built-in AI uses Chrome's `LanguageModel` API from the extension background service worker. It requires a supported desktop Chrome installation and the on-device model may need to download the first time it is used. No provider key is stored and no backend server is contacted.
+
+If Chrome reports that built-in AI is unavailable, Continue it falls back to the local heuristic summary and records a warning in the handoff.
 
 ### Your own API key — free OpenAI-compatible providers
 
@@ -208,7 +215,7 @@ Supports any Chromium-based browser that handles Manifest V3: Chrome, Edge, Brav
 ```
 Continue it/
 ├── manifest.json          # Extension config (MV3), permissions, host permissions
-├── background.js          # Service worker — performs AI summarize requests (Server AI + BYO)
+├── background.js          # Service worker — performs AI summarize requests (Chrome built-in, Server AI + BYO)
 ├── provider-config.js     # Provider registry (selectors, role hints per platform)
 ├── shared-handoff.js      # Core data model, local summarizer, chunker, storage API
 ├── shared-ai.js           # Unified AI client — modes, provider presets, settings, permissions
@@ -235,6 +242,7 @@ host permission and makes the cross-origin request:
 ```js
 // content-site.js → shared-ai.js → background.js
 chrome.runtime.sendMessage({ type: "continueIt.summarize", payload }, cb)
+// → Chrome built-in AI: LanguageModel.create(...).prompt(...)
 // → Server AI: POST <serverUrl>/api/summarize   (with x-continue-it-client header)
 // → Your key:  POST <baseUrl>/chat/completions  (Authorization: Bearer <key>)
 
@@ -305,7 +313,7 @@ To test on a platform, navigate to a chat page with an active conversation and t
 | Host permissions (8 domains) | Inject content scripts on supported AI platforms |
 | `optional_host_permissions` | Requested only when you enable Server AI or your own API key — grants access to that one endpoint |
 
-In **No AI** mode, no network requests are made and no data leaves your browser. In **Server AI** or **Your own API key** mode, a compacted summary is sent only to the endpoint you configured, and the extension asks for permission to reach that host at the moment you save the setting.
+In **No AI** mode, no network requests are made and no data leaves your browser. In **Chrome built-in AI** mode, the compacted summary input is processed by Chrome's on-device model when available. In **Server AI** or **Your own API key** mode, a compacted summary is sent only to the endpoint you configured, and the extension asks for permission to reach that host at the moment you save the setting.
 
 ---
 
@@ -323,4 +331,4 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ## Version
 
-**0.7.0** — Manifest V3, schema v2. Adds three AI summary modes (local / Server AI with 5-per-day quota / bring-your-own OpenAI-compatible key) and an optional rate-limited backend.
+**0.7.0** — Manifest V3, schema v2. Adds four AI summary modes (local / Chrome built-in AI / Server AI / bring-your-own OpenAI-compatible key) and an optional rate-limited backend.

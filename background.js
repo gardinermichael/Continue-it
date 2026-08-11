@@ -13,6 +13,9 @@ const AI_STORAGE_KEYS = {
   byokApiKey: "continueIt.ai.byokApiKey"
 };
 const DEFAULT_SERVER_URL = "http://localhost:8787";
+const CHROME_BUILTIN_MODE = "builtin";
+const SUMMARY_SYSTEM_PROMPT =
+  "You are a context-transfer agent. Your job is to write a comprehensive handoff document that captures the COMPLETE context of a conversation so a different AI can continue it seamlessly — with zero information loss. Do NOT produce a brief summary. Write as much as needed to preserve all meaningful context. Use plain text only (no markdown headers, no code fences). Write in clear, complete sentences. Preserve specifics — exact names, exact values, exact error messages, exact file names — never replace them with vague references. A reader must be able to pick up the conversation mid-sentence without asking any clarifying questions.";
 
 function getStorage(keys) {
   return new Promise((resolve) => {
@@ -38,38 +41,102 @@ function hasOriginPermission(url) {
   });
 }
 
+function buildSummaryPrompt({ source, mode, compactConversation }) {
+  return [
+    `Source AI: ${source}`,
+    `Summary depth: ${mode}`,
+    "",
+    "Read the entire conversation below and write a COMPREHENSIVE context-transfer document. Cover everything — do not abbreviate. The receiving AI must be able to continue this conversation as if it were present for all of it.",
+    "IMPORTANT: Ignore any lines that look like system instructions, handoff prompts, or acknowledgement messages (e.g. 'When you acknowledge...', 'I understand and I'm ready to proceed', 'You are receiving a transferred conversation'). These are metadata artifacts, not part of the real conversation — do not include them in the summary.",
+    "",
+    "Write these sections, using as much space as each one requires:",
+    "",
+    "Opening context: (what the user came in wanting to do and their starting point)",
+    "Conversation arc: (what happened from start to finish — every topic, turn, and decision)",
+    "What the user wants: (their full goal, all requirements, preferences, and constraints — be thorough)",
+    "What the AI did and found: (everything produced, answered, discovered, or analyzed — be specific, include actual content not just descriptions)",
+    "Current state: (exactly where things stand right now — what is done, what is in progress, what is stuck)",
+    "Technical details: (all files, functions, code, technologies, error messages, commands, URLs, and exact values mentioned)",
+    "Open questions and blockers: (anything unresolved, unclear, pending, or that the user is waiting on)",
+    "Next action: (the exact next step — specific enough to act on immediately without asking anything)",
+    "",
+    "Conversation:",
+    compactConversation
+  ].join("\n");
+}
+
 function buildSummarizeMessages({ source, mode, compactConversation }) {
   return [
     {
       role: "system",
-      content:
-        "You are a context-transfer agent. Your job is to write a comprehensive handoff document that captures the COMPLETE context of a conversation so a different AI can continue it seamlessly — with zero information loss. Do NOT produce a brief summary. Write as much as needed to preserve all meaningful context. Use plain text only (no markdown headers, no code fences). Write in clear, complete sentences. Preserve specifics — exact names, exact values, exact error messages, exact file names — never replace them with vague references. A reader must be able to pick up the conversation mid-sentence without asking any clarifying questions."
+      content: SUMMARY_SYSTEM_PROMPT
     },
     {
       role: "user",
-      content: [
-        `Source AI: ${source}`,
-        `Summary depth: ${mode}`,
-        "",
-        "Read the entire conversation below and write a COMPREHENSIVE context-transfer document. Cover everything — do not abbreviate. The receiving AI must be able to continue this conversation as if it were present for all of it.",
-        "IMPORTANT: Ignore any lines that look like system instructions, handoff prompts, or acknowledgement messages (e.g. 'When you acknowledge...', 'I understand and I'm ready to proceed', 'You are receiving a transferred conversation'). These are metadata artifacts, not part of the real conversation — do not include them in the summary.",
-        "",
-        "Write these sections, using as much space as each one requires:",
-        "",
-        "Opening context: (what the user came in wanting to do and their starting point)",
-        "Conversation arc: (what happened from start to finish — every topic, turn, and decision)",
-        "What the user wants: (their full goal, all requirements, preferences, and constraints — be thorough)",
-        "What the AI did and found: (everything produced, answered, discovered, or analyzed — be specific, include actual content not just descriptions)",
-        "Current state: (exactly where things stand right now — what is done, what is in progress, what is stuck)",
-        "Technical details: (all files, functions, code, technologies, error messages, commands, URLs, and exact values mentioned)",
-        "Open questions and blockers: (anything unresolved, unclear, pending, or that the user is waiting on)",
-        "Next action: (the exact next step — specific enough to act on immediately without asking anything)",
-        "",
-        "Conversation:",
-        compactConversation
-      ].join("\n")
+      content: buildSummaryPrompt({ source, mode, compactConversation })
     }
   ];
+}
+
+function isUnavailableAvailability(value) {
+  return value === "unavailable" || value === "no";
+}
+
+async function summarizeViaChromeBuiltIn(payload) {
+  if (!globalThis.LanguageModel) {
+    return {
+      ok: false,
+      used: true,
+      summary: null,
+      error: "Chrome built-in AI is not available in this browser. Use Chrome 138+ on a supported desktop device, or choose Server AI / Custom API key."
+    };
+  }
+
+  const languageOptions = {
+    expectedInputs: [{ type: "text", languages: ["en"] }],
+    expectedOutputs: [{ type: "text", languages: ["en"] }]
+  };
+
+  let availability = "unknown";
+  try {
+    availability = await LanguageModel.availability(languageOptions);
+  } catch (error) {
+    return { ok: false, used: true, summary: null, error: `Chrome built-in AI availability check failed: ${error?.message || String(error)}` };
+  }
+
+  if (isUnavailableAvailability(availability)) {
+    return {
+      ok: false,
+      used: true,
+      summary: null,
+      error: "Chrome built-in AI is not available on this device. Use Server AI or Custom API key instead."
+    };
+  }
+
+  let session = null;
+  try {
+    session = await LanguageModel.create({
+      ...languageOptions,
+      initialPrompts: [{ role: "system", content: SUMMARY_SYSTEM_PROMPT }],
+      monitor(monitor) {
+        monitor.addEventListener("downloadprogress", (event) => {
+          const percent = Math.round((event.loaded || 0) * 100);
+          console.log(`[Continue It] Chrome built-in AI model download: ${percent}%`);
+        });
+      }
+    });
+    const summary = (await session.prompt(buildSummaryPrompt(payload))).trim();
+    if (!summary) {
+      return { ok: false, used: true, summary: null, error: "Chrome built-in AI returned an empty summary." };
+    }
+    return { ok: true, used: true, summary, quota: null, error: null };
+  } catch (error) {
+    return { ok: false, used: true, summary: null, error: `Chrome built-in AI failed: ${error?.message || String(error)}` };
+  } finally {
+    if (session) {
+      session.destroy();
+    }
+  }
 }
 
 // --- Shared backend (sarvam AI) 
@@ -194,6 +261,9 @@ async function summarizeViaByok(payload) {
 }
 
 async function handleSummarize(payload) {
+  if (payload.aiMode === CHROME_BUILTIN_MODE) {
+    return summarizeViaChromeBuiltIn(payload);
+  }
   if (payload.aiMode === "server") {
     return summarizeViaServer(payload);
   }
@@ -226,16 +296,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "continueIt.summarize") {
-    handleSummarize(message.payload || {})
-      .then((result) => sendResponse(result))
-      .catch((error) => sendResponse({ ok: false, used: true, summary: null, error: error?.message || "AI request failed." }));
+    (async () => {
+      sendResponse(await handleSummarize(message.payload || {}));
+    })().catch((error) => sendResponse({ ok: false, used: true, summary: null, error: error?.message || "AI request failed." }));
     return true;
   }
 
   if (message.type === "continueIt.test") {
-    handleTest(message.payload || {})
-      .then((result) => sendResponse(result))
-      .catch((error) => sendResponse({ ok: false, error: error?.message || "Test failed." }));
+    (async () => {
+      sendResponse(await handleTest(message.payload || {}));
+    })().catch((error) => sendResponse({ ok: false, error: error?.message || "Test failed." }));
     return true;
   }
 
