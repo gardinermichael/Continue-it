@@ -510,6 +510,64 @@ Implementation lessons to carry forward:
 - For RAG sessions, save the retrieved context. Exported answers should identify
   which notes, bookmarks, tabs, or references were used to generate them.
 
+## Second-Pass Requirements (2026-08-11 Source Re-Sweep)
+
+A second sweep of all referenced repositories and a structural audit
+(`docs/Plans/2026-08-11-source-resweep-review.md`) promoted the following from
+implicit assumptions to first-slice requirements. Each is traceable to a
+convergent pattern across multiple swept repositories.
+
+- **Atomic session-bundle write.** Write a session folder to a temporary
+  directory and make `manifest.json` the last file written — the commit marker.
+  A bundle without a final `manifest.json` is treated as torn and ignored on
+  read. Do not rely on post-hoc hash verification to detect a partial write.
+  (Pattern: `leonhartX/gas-github` blob→tree→commit→ref sequencing.)
+- **Split verification into Verify and Guard.** *Guard* checks invariants (schema
+  valid, references resolve, no dropped messages, raw hash matches) and, on
+  violation, forces a hard revert/discard. *Verify* checks improvement (density,
+  coverage, token delta) and, on regression, triggers rework. They are separate
+  gates with separate decision rules, not one "verification gate."
+  (Pattern: `karpathy/autoresearch`, `uditgoenka/autoresearch`,
+  `supratikpm/gemini-autoresearch`.)
+- **Bounded capture and synthesis loops.** The capture state machine gets a
+  `maxScrollRetries` cap and a wall-clock ceiling alongside `topProof.stableIterations`.
+  Rolling synthesis gets a max-iteration count and stop criteria. No loop may run
+  unbounded. (Pattern: every autoresearch-family repo.)
+- **Deterministic session teardown.** Destroy `LanguageModel` sessions on
+  generation completion *and* on service-worker suspend, tab close, and extension
+  disable/update. Record in the manifest whether an artifact's generating session
+  ended cleanly or was killed mid-flight. (Pattern: the unenforced `destroy()`
+  gap in `Mazen-Embaby/gogo-va-extension`.)
+- **Verifier-backend provenance.** The manifest records both the backend that
+  *generated* an artifact and the backend (if any) that *verified* it. A summary
+  verified by the same model that produced it is not a passed gate; it lowers
+  recorded confidence. (Pattern: `wanshuiyin/Auto-claude-code-research-in-sleep`
+  different-family reviewer requirement.)
+- **Provenance backlink on compiled layers.** Every `concepts/` and `skills/`
+  entry carries `source_session` id + `raw_chunk_hash` pointers rather than
+  assuming reference sidecars suffice at every tier. This closes the tension
+  between distilled paraphrase and "never trust the model's re-quoting."
+  (Pattern: `pzqpzq/Principia`, `wanshuiyin/Anti-Autoresearch`.)
+- **Mechanical anti-skimming density floor.** `summary.md` and `handoff.md` must
+  pass a minimum-specificity score (quote count, file/URL/error-token count)
+  before a synthesis pass is accepted. A second gap-filling pass may not be used
+  to reach the floor. This is the operational form of the core thesis applied to
+  the one step where the spec currently trusts the weak model unsupervised.
+  (Pattern: `REMvisual/claude-handoff` baseline-then-gap-fill enforcement.)
+- **Branch/DAG-aware transcript.** `transcript.jsonl` carries `parent_message_id`
+  per entry so regenerate/edit branches are preserved, not flattened by the
+  linear scroll-to-top model. Prefer a canonical provider-graph/API snapshot as
+  the primary capture path (it yields the DAG and sidesteps virtualization); use
+  DOM scroll-to-top as the fallback. Rejected branches are retained as the
+  high-value "failed approaches" record. (Pattern: `zhaoliangbin42/AI-MarkDone`,
+  `daugaard47/ChatGPT_Conversations_To_Markdown`.)
+
+Deferred to future notes (not first slice): full cross-model independent-review
+gate before promotion; claim-level span-anchored ledger; MCP inversion (exposing
+the wiki as an MCP server); session chain-continuity metadata distinct from topic
+rollup; an archive/retirement absorbing state; and multi-writer concurrency with
+handoff revision/lock semantics.
+
 ## Out of Scope
 
 - Building a full autonomous research agent inside the extension.
@@ -586,14 +644,25 @@ MV3 extension architecture and existing handoff workflow.
 | `khoj-ai/khoj` | Personal AI assistants should save retrieved context, support offline/online modes, export conversations, and use Git-like traces for query/response/system-prompt provenance. | For RAG-backed summaries, save retrieved notes/references and system prompts alongside the generated answer. |
 | `zhaoliangbin42/AI-MarkDone` | High-quality ChatGPT tooling uses canonical snapshots from provider graphs, background-as-write-authority, versioned runtime messages, immutable semantic models, source-bound annotations, and safe restore previews. | Add a canonical snapshot layer, versioned message protocol, annotation sidecars, and preview-before-restore semantics. |
 
-The likely first implementation slice is:
+The likely first implementation slice is (reordered so capture-completeness, the
+foundational correctness property, comes first — everything downstream is
+worthless if capture silently drops the beginning):
 
-1. Add a session artifact builder that emits JSONL, XML, summary Markdown,
-   handoff Markdown, and manifest objects from the existing captured handoff.
-2. Add export/download UI for a zipped session directory.
-3. Add stronger scroll-to-top capture diagnostics and top-proof state.
-4. Add repo layout documentation and fixtures.
-5. Add optional GitHub sync after local artifact export is stable.
+1. Strengthen capture: bounded scroll-to-top state machine with `topProof`,
+   `maxScrollRetries`, and a wall-clock ceiling; branch/DAG-aware transcript with
+   `parent_message_id`; a hard "capture incomplete" marker propagated into the
+   manifest, summary, and handoff when top-proof is absent.
+2. Add a session artifact builder that emits JSONL, XML, summary Markdown,
+   handoff Markdown, and manifest objects from a verified-complete capture, using
+   the atomic-bundle write (manifest.json written last as the commit marker).
+3. Apply the Verify/Guard split and the anti-skimming density floor to generated
+   summaries and handoffs; record verifier-backend provenance in the manifest.
+4. Add export/download UI for a zipped session directory, plus repo layout
+   documentation and fixtures.
+5. Add optional GitHub sync after local artifact export is stable — with a
+   secret-redaction/scan pass over transcript content before any sync.
 
 The main risk is silent incompleteness. The extension should prefer an explicit
-"capture incomplete" warning over a polished but partial summary.
+"capture incomplete" warning over a polished but partial summary. See
+`docs/Plans/2026-08-11-source-resweep-review.md` for the full second-pass audit
+and the Second-Pass Requirements section above for concrete acceptance criteria.

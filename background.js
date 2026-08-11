@@ -109,14 +109,28 @@ async function chromeBuiltInCreateOptions(baseOptions) {
 }
 
 async function logChromeBuiltInContextUsage(session, prompt) {
-  if (typeof session.measureContextUsage !== "function") {
+  // Current Chrome exposes measureInputUsage()/inputUsage/inputQuota. Older builds
+  // used measureContextUsage()/contextWindow. Prefer the current names and fall
+  // back to the legacy ones so the log works across Chrome versions.
+  const measure =
+    typeof session.measureInputUsage === "function"
+      ? session.measureInputUsage.bind(session)
+      : typeof session.measureContextUsage === "function"
+        ? session.measureContextUsage.bind(session)
+        : null;
+  if (!measure) {
     return;
   }
 
   try {
-    const usage = await session.measureContextUsage(prompt);
-    const windowSize = session.contextWindow || "unknown";
-    console.log(`[Continue It] Chrome built-in AI prompt context usage: ${usage}/${windowSize}`);
+    const usage = await measure(prompt);
+    const quota =
+      session.inputQuota != null
+        ? session.inputQuota
+        : session.contextWindow != null
+          ? session.contextWindow
+          : "unknown";
+    console.log(`[Continue It] Chrome built-in AI prompt context usage: ${usage}/${quota}`);
   } catch (error) {
     console.warn("[Continue It] Could not measure Chrome built-in AI context usage.", error);
   }
@@ -181,10 +195,15 @@ async function summarizeViaChromeBuiltIn(payload) {
     });
     session = await LanguageModel.create(createOptions);
     if (typeof session.addEventListener === "function") {
-      session.addEventListener("contextoverflow", () => {
+      // Current Chrome fires "quotaoverflow"; older builds fired "contextoverflow".
+      // Register both so overflow is detected (and routed to Server AI / BYOK)
+      // regardless of Chrome version.
+      const onOverflow = () => {
         contextOverflowed = true;
         console.warn("[Continue It] Chrome built-in AI context overflowed; some prompt context may be dropped.");
-      });
+      };
+      session.addEventListener("quotaoverflow", onOverflow);
+      session.addEventListener("contextoverflow", onOverflow);
     }
 
     const prompt = buildSummaryPrompt(payload);
