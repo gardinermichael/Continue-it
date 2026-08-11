@@ -253,15 +253,48 @@ saveAiButton.addEventListener("click", async () => {
   );
 });
 
+let testTicker = null;
+
+function stopTestTicker() {
+  if (testTicker) {
+    clearInterval(testTicker);
+    testTicker = null;
+  }
+  testBuiltInButton.disabled = false;
+  testAiButton.disabled = false;
+}
+
 function setTestStatus(message, state) {
+  stopTestTicker();
   testStatusEl.textContent = message;
   testStatusEl.className = "test-status" + (state ? ` ${state}` : "");
   testStatusEl.hidden = !message;
 }
 
+// A model round trip can take a while. Animated ellipses plus an elapsed second
+// counter are what tell the user the popup is waiting rather than wedged.
+function startTestStatus(message) {
+  stopTestTicker();
+  const startedAt = Date.now();
+  testBuiltInButton.disabled = true;
+  testAiButton.disabled = true;
+  testStatusEl.className = "test-status pending";
+  testStatusEl.hidden = false;
+
+  function paint() {
+    const elapsedMs = Date.now() - startedAt;
+    const dots = ".".repeat(1 + (Math.floor(elapsedMs / 400) % 3));
+    const seconds = Math.round(elapsedMs / 1000);
+    testStatusEl.textContent = `${message}${dots}${seconds >= 2 ? ` (${seconds}s)` : ""}`;
+  }
+
+  paint();
+  testTicker = setInterval(paint, 400);
+}
+
 testBuiltInButton.addEventListener("click", async () => {
   await ai.saveSettings({ mode: ai.AI_MODES.builtin });
-  setTestStatus("Testing Chrome built-in AI…", "");
+  startTestStatus("Testing Chrome built-in AI");
   const result = await ai.testConnection();
   if (result && result.ok) {
     setTestStatus("Chrome built-in AI is ready.", "ok");
@@ -285,7 +318,7 @@ testAiButton.addEventListener("click", async () => {
       return;
     }
   }
-  setTestStatus("Testing connection…", "");
+  startTestStatus("Testing connection");
   const result = await ai.testConnection();
   if (result && result.ok) {
     setTestStatus("Connection works. AI summaries are ready.", "ok");

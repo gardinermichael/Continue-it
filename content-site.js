@@ -12,6 +12,8 @@
     return;
   }
 
+  const LAUNCHER_ID = `continue-it-launcher-${provider.id}`;
+
   function getNodeText(node) {
     return shared.cleanMessageText(node?.innerText || node?.textContent || "");
   }
@@ -328,7 +330,7 @@
     modal.content.querySelector("#continue-it-close-debug").addEventListener("click", () => modal.close());
   }
 
-  async function captureConversation() {
+  async function captureConversation({ onProgress } = {}) {
     const scrollRoot = findScrollableContainer();
     const originalScrollTop = scrollRoot.scrollTop;
     const cache = new Map();
@@ -338,7 +340,27 @@
     let scanSteps = 0;
     const stepCounts = [];
 
-    ui.toast(`Scanning ${provider.name} conversation for full context...`, "default", 2000);
+    // How far we have to scroll back up is the only real measure of scan
+    // progress. Virtualized transcripts can grow while we walk up, so the
+    // fraction is a best effort — the progress UI clamps it monotonically.
+    const scanDistance = originalScrollTop;
+
+    function reportProgress(step) {
+      if (!onProgress) {
+        return;
+      }
+      const scrolled = scanDistance > 0
+        ? 1 - Math.min(1, Math.max(0, scrollRoot.scrollTop / scanDistance))
+        : Math.min(1, (step + 1) / 4);
+      // The cache re-keys the same message at each scroll offset it was seen at,
+      // so count distinct text instead — that is what survives deduplication and
+      // what the review modal will report.
+      const found = new Set([...cache.values()].map((candidate) => candidate.text)).size;
+      onProgress({
+        fraction: scrolled,
+        detail: found === 1 ? "1 message found so far" : `${found} messages found so far`
+      });
+    }
 
     for (let step = 0; step < 80; step += 1) {
       scanSteps = step + 1;
@@ -352,6 +374,7 @@
 
       const currentCount = cache.size;
       stepCounts.push(currentCount);
+      reportProgress(step);
       const reachedTop = scrollRoot.scrollTop <= 0;
       if (currentCount === previousCount) {
         stableSteps += 1;
@@ -657,25 +680,61 @@
     return error && typeof error.message === "string" && error.message.toLowerCase().includes("extension context invalidated");
   }
 
+  let exportInFlight = false;
+
   async function exportConversation() {
+    if (exportInFlight) {
+      ui.toast("An export is already running on this tab.", "warning");
+      return;
+    }
+    exportInFlight = true;
+
+    const progress = ui.createProgress({
+      launcherId: LAUNCHER_ID,
+      busyLabel: "Exporting",
+      label: "Starting export"
+    });
+
     try {
-      return await _exportConversation();
+      return await _exportConversation(progress);
     } catch (error) {
       console.error("[Continue It] Export failed:", error);
       if (isContextInvalidated(error)) {
+        progress.fail("Extension reloaded", "Refresh this page (F5), then try again.");
         ui.toast("Extension was reloaded — please refresh this page (F5), then try again.", "error", 8000);
       } else {
+        progress.fail("Export failed", error?.message || String(error));
         ui.toast(`Export failed: ${error?.message || String(error)}`, "error", 8000);
       }
+    } finally {
+      exportInFlight = false;
     }
   }
 
-  async function _exportConversation() {
-    const { messages, diagnostics, rawCandidates } = await captureConversation();
+  async function _exportConversation(progress) {
+    progress.phase({
+      label: `Scanning ${provider.name} conversation`,
+      detail: "Scrolling back for the full transcript…",
+      from: 0,
+      to: 0.5
+    });
+
+    const { messages, diagnostics, rawCandidates } = await captureConversation({
+      onProgress: ({ fraction, detail }) => progress.set(fraction, detail)
+    });
+
     if (!messages.length) {
+      progress.fail("No messages found", `Nothing to export from this ${provider.name} page.`);
       ui.toast(`No ${provider.name} messages found on this page.`, "error");
       return;
     }
+
+    progress.phase({
+      label: "Building handoff",
+      detail: `${messages.length} messages captured.`,
+      from: 0.5,
+      to: 0.58
+    });
 
     const summaryMode = await shared.getSummaryMode();
     const handoff = shared.buildHandoff({
@@ -697,12 +756,24 @@
       const modes = window.ContinueItAI.AI_MODES;
       const usingAI = aiSettings.mode !== modes.none;
       if (usingAI) {
-        const toastMessage = aiSettings.mode === modes.server
-          ? "Contacting Server AI..."
+        const phaseLabel = aiSettings.mode === modes.server
+          ? "Contacting Server AI"
           : aiSettings.mode === modes.builtin
-            ? "Generating summary with Chrome built-in AI..."
-            : "Generating summary with your API key...";
-        ui.toast(toastMessage, "default", 2500);
+            ? "Summarizing with Chrome built-in AI"
+            : "Summarizing with your API key";
+        // The request length is unknowable, so this phase creeps toward its end
+        // and shows elapsed time — the bar must never look parked.
+        progress.phase({
+          label: phaseLabel,
+          detail: "Waiting for the model to respond…",
+          from: 0.58,
+          to: 0.94,
+          creep: true,
+          slowHintAfter: 12000,
+          slowHint: "Still waiting on the model. Long conversations can take a minute or more."
+        });
+      } else {
+        progress.phase({ label: "Summarizing locally", from: 0.58, to: 0.94 });
       }
       const aiResult = await window.ContinueItAI.summarizeConversation({
         source: provider.name,
@@ -737,7 +808,9 @@
 
     handoff.summarySource = summarySource;
 
+    progress.phase({ label: "Preparing review", detail: "", from: 0.94, to: 1 });
     await shared.resetChunkCursor(handoff.id);
+    progress.succeed("Export ready");
     await openExportModal(handoff, { rawCandidates, diagnostics, messageCount: messages.length });
   }
 
@@ -765,7 +838,7 @@
 
   function boot() {
     ui.mountLauncher({
-      id: `continue-it-launcher-${provider.id}`,
+      id: LAUNCHER_ID,
       label: "Continue It",
       getAnchor: getLauncherAnchor,
       actions: [

@@ -68,6 +68,17 @@ Single prompt with header + summary + chunk digest + import instructions. Paste 
 - Transcript divided into ~12 KB chunks sent one at a time
 - The popup's **Copy next chunk** button advances the cursor automatically
 
+### Export progress indicator
+Exports can take a while — the scroll-scan plus a summarization round trip — so the page shows live progress instead of appearing frozen:
+- A progress light traces the browser window edge, filling clockwise as the export advances
+- The page dims to grey (non-blocking: the scrim ignores clicks, so the page stays usable)
+- A status chip names the current phase (scanning, building handoff, contacting the model, preparing review), counts messages found, animates ellipses, and shows elapsed seconds once past two seconds
+- The floating **Continue It** button doubles as a progress bar and reads `Exporting...`
+- The whole indicator turns green on success and red with the failure reason on error
+- Phases with an unknowable duration (an in-flight API call) creep toward their end so the bar never looks parked, and after 12 seconds the chip adds a "still waiting on the model" note
+- Only one export runs per tab at a time; a second click says so instead of starting a duplicate
+- Honors `prefers-reduced-motion` by dropping the spinner and pulse animations
+
 ### Popup dashboard
 - Stats: source platform, captured-at timestamp, message counts, chunk progress
 - Summary mode selector (persisted to storage)
@@ -179,7 +190,7 @@ Supports any Chromium-based browser that handles Manifest V3: Chrome, Edge, Brav
 
 1. Open any supported AI chat page with an active conversation
 2. Click the **Export Context** button that appears on the right side of the page
-3. The extension scrolls through and captures the full thread
+3. The extension scrolls through and captures the full thread, then summarizes it — a progress light around the window, a status chip with elapsed time, and a progress fill on the button track the whole run
 4. A modal opens showing:
    - Conversation stats (messages, roles, estimated tokens, chunks)
    - Editable summary (switch mode to regenerate)
@@ -219,7 +230,7 @@ Continue it/
 ├── provider-config.js     # Provider registry (selectors, role hints per platform)
 ├── shared-handoff.js      # Core data model, local summarizer, chunker, storage API
 ├── shared-ai.js           # Unified AI client — modes, provider presets, settings, permissions
-├── shared-ui.js           # Toast, modal, and launcher button components
+├── shared-ui.js           # Toast, modal, launcher button, and progress indicator components
 ├── content-site.js        # Generic content script injected on all supported sites
 ├── popup.html/.css/.js    # Popup UI (stats, AI mode selector, handoff controls)
 └── server/
