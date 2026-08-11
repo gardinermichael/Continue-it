@@ -8,11 +8,19 @@ const PORT = Number(process.env.PORT || 8787);
 // --- Upstream provider (owner-funded "Server AI" tier) ----------------------
 // Preferred: any OpenAI-compatible provider via OPENAI_BASE_URL + OPENAI_API_KEY.
 // Falls back to the legacy Sarvam configuration if that is all that is set.
-const OPENAI_BASE_URL = (process.env.OPENAI_BASE_URL || "").replace(/\/$/, "");
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
-const OPENAI_MODEL = process.env.OPENAI_MODEL || "";
-const SARVAM_API_KEY = process.env.SARVAM_API_KEY || "";
-const SARVAM_MODEL = process.env.SARVAM_MODEL || "sarvam-30b";
+const OPENAI_BASE_URL = (process.env.OPENAI_BASE_URL || "").trim().replace(/\/$/, "");
+const OPENAI_API_KEY = (process.env.OPENAI_API_KEY || "").trim();
+const OPENAI_MODEL = (process.env.OPENAI_MODEL || "").trim();
+const SARVAM_API_KEY = (process.env.SARVAM_API_KEY || "").trim();
+const SARVAM_MODEL = (process.env.SARVAM_MODEL || "sarvam-30b").trim();
+
+function configWarnings() {
+  const warnings = [];
+  if (OPENAI_BASE_URL.includes("openrouter.ai") && OPENAI_API_KEY && !OPENAI_API_KEY.startsWith("sk-or-")) {
+    warnings.push("OPENAI_BASE_URL points to OpenRouter, but OPENAI_API_KEY does not look like an OpenRouter key. Use an OpenRouter key from https://openrouter.ai/keys, or change OPENAI_BASE_URL/model to match your provider.");
+  }
+  return warnings;
+}
 
 // --- Free-tier quota --------------------------------------------------------
 const DAILY_LIMIT = Number(process.env.DAILY_LIMIT || 5);
@@ -146,6 +154,7 @@ app.get("/health", (req, res) => {
     configured: Boolean(provider),
     provider: provider?.name || null,
     model: provider?.model || null,
+    warnings: configWarnings(),
     dailyLimit: DAILY_LIMIT,
     windowHours: WINDOW_MS / (60 * 60 * 1000)
   });
@@ -196,7 +205,9 @@ app.post("/api/summarize", async (req, res) => {
 
     if (!response.ok) {
       const text = await response.text();
-      res.status(502).json({ ok: false, error: `Upstream provider failed: ${response.status} ${text.slice(0, 400)}`, quota });
+      const warningText = configWarnings().join(" ");
+      const hint = response.status === 401 && warningText ? ` ${warningText}` : "";
+      res.status(502).json({ ok: false, error: `Upstream provider failed: ${response.status} ${text.slice(0, 400)}${hint}`, quota });
       return;
     }
 

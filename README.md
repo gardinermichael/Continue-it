@@ -109,7 +109,7 @@ Any OpenAI-compatible endpoint works. Create a key (most need no credit card), p
 
 | Provider | Base URL | Example free model | Get a key |
 |---|---|---|---|
-| **OpenRouter** | `https://openrouter.ai/api/v1` | `meta-llama/llama-3.3-70b-instruct:free` | [openrouter.ai/keys](https://openrouter.ai/keys) |
+| **OpenRouter** | `https://openrouter.ai/api/v1` | `google/gemma-4-26b-a4b-it:free` | [openrouter.ai/keys](https://openrouter.ai/keys) |
 | **Google AI Studio** | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-2.0-flash` | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) |
 | **Groq** (fastest) | `https://api.groq.com/openai/v1` | `llama-3.3-70b-versatile` | [console.groq.com/keys](https://console.groq.com/keys) |
 | **Cerebras** (highest volume) | `https://api.cerebras.ai/v1` | `llama-3.3-70b` | [cloud.cerebras.ai](https://cloud.cerebras.ai/) |
@@ -136,9 +136,11 @@ npm start
 Configure `.env` with any **free** OpenAI-compatible provider so it costs you nothing:
 
 ```bash
+# OpenRouter example: use an OpenRouter key from https://openrouter.ai/keys.
+# If you use a different provider key, change both OPENAI_BASE_URL and model.
 OPENAI_BASE_URL=https://openrouter.ai/api/v1
 OPENAI_API_KEY=sk-or-...            # your key, never exposed to users
-OPENAI_MODEL=meta-llama/llama-3.3-70b-instruct:free
+OPENAI_MODEL=google/gemma-4-26b-a4b-it:free
 DAILY_LIMIT=5                       # exports per window
 RATE_WINDOW_HOURS=24
 ```
