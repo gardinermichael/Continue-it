@@ -78,6 +78,17 @@ app.set("trust proxy", true);
 app.use(cors({ exposedHeaders: ["x-continue-it-quota"] }));
 app.use(express.json({ limit: "2mb" }));
 
+app.get("/", (req, res) => {
+  res.type("text/plain").send("Continue It backend is running. Use GET /health or POST /api/summarize.\n");
+});
+
+// Chrome DevTools may probe this localhost path for automatic workspace setup.
+// This backend does not expose a browser workspace, so answer quietly instead of
+// letting Express generate a CSP-protected 404 page in local development.
+app.get("/.well-known/appspecific/com.chrome.devtools.json", (req, res) => {
+  res.status(204).end();
+});
+
 function clientKeys(req) {
   const clientId = String(req.header("x-continue-it-client") || "").slice(0, 128);
   const ip = req.ip || req.socket?.remoteAddress || "unknown";
@@ -147,8 +158,8 @@ app.post("/api/summarize", async (req, res) => {
     return;
   }
 
-  const { source, mode, heuristicSummary, compactConversation } = req.body || {};
-  if (!source || !mode || !heuristicSummary || !compactConversation) {
+  const { source, mode, compactConversation } = req.body || {};
+  if (!source || !mode || !compactConversation) {
     res.status(400).json({ ok: false, error: "Missing required summarize fields." });
     return;
   }
@@ -179,7 +190,7 @@ app.post("/api/summarize", async (req, res) => {
         model: provider.model,
         temperature: 0.2,
         max_tokens: maxTokens,
-        messages: buildMessages({ source, mode, heuristicSummary, compactConversation })
+        messages: buildMessages({ source, mode, compactConversation })
       })
     });
 
