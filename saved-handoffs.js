@@ -21,6 +21,7 @@ const testBuiltInButton = document.getElementById("testBuiltIn");
 const testAiButton = document.getElementById("testAi");
 const saveAiButton = document.getElementById("saveAi");
 const saveAiFeedbackEl = document.getElementById("saveAiFeedback");
+let artifactsBySessionId = new Map();
 
 const REGENERATE_MODES = [
   { value: "none", label: "No AI (local)" },
@@ -267,6 +268,13 @@ function summarySourceForMode(mode) {
   return "Local (no AI)";
 }
 
+function formatBytes(bytes) {
+  const value = Number(bytes) || 0;
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${Math.round(value / 1024)} KB`;
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 function createRegeneratedHandoffId(sessionId, mode) {
   const suffix = globalThis.crypto?.randomUUID
     ? globalThis.crypto.randomUUID()
@@ -331,6 +339,15 @@ function downloadSessionJson(session, root) {
   };
   shared.downloadTextFile(`${session.id}.json`, JSON.stringify(payload, null, 2));
   setStatus(root, "Session JSON downloaded.", "ok");
+}
+
+function downloadArtifact(artifact, root) {
+  if (!artifact?.content) {
+    setStatus(root, "Stored file content is not available.", "error");
+    return;
+  }
+  shared.downloadTextFile(artifact.fileName || `${artifact.id}.txt`, artifact.content, artifact.mimeType || "text/plain;charset=utf-8");
+  setStatus(root, `Downloaded ${artifact.title || artifact.fileName || "stored file"}.`, "ok");
 }
 
 function fullHandoffsFor(session) {
@@ -623,6 +640,51 @@ function renderRegenerateControls(session, details) {
   details.appendChild(panel);
 }
 
+function renderSessionArtifacts(session, root) {
+  const artifacts = artifactsBySessionId.get(session.id) || [];
+  const details = document.createElement("details");
+  const summary = document.createElement("summary");
+  const list = document.createElement("div");
+
+  details.className = "artifact-section";
+  summary.textContent = `Stored files (${artifacts.length})`;
+  list.className = "artifact-list";
+  details.appendChild(summary);
+  details.appendChild(list);
+
+  if (!artifacts.length) {
+    const empty = document.createElement("p");
+    empty.className = "artifact-empty";
+    empty.textContent = "No generated files are stored for this session yet. Regenerate or save a new handoff to populate this section.";
+    list.appendChild(empty);
+    return details;
+  }
+
+  artifacts.forEach((artifact) => {
+    const row = document.createElement("div");
+    const info = document.createElement("div");
+    const title = document.createElement("strong");
+    const meta = document.createElement("span");
+    const actions = document.createElement("div");
+
+    row.className = "artifact-row";
+    info.className = "artifact-info";
+    actions.className = "artifact-actions";
+    title.textContent = artifact.title || artifact.fileName || artifact.kind || "Stored file";
+    meta.textContent = `${artifact.fileName || artifact.id} | ${artifact.kind || "file"} | ${formatBytes(artifact.sizeBytes)}`;
+
+    addButton(actions, "Download", "secondary", () => downloadArtifact(artifact, root));
+
+    info.appendChild(title);
+    info.appendChild(meta);
+    row.appendChild(info);
+    row.appendChild(actions);
+    list.appendChild(row);
+  });
+
+  return details;
+}
+
 function renderSession(session, index) {
   const details = document.createElement("details");
   const summary = document.createElement("summary");
@@ -670,6 +732,7 @@ function renderSession(session, index) {
   body.appendChild(sessionMetaRow);
   body.appendChild(sessionStatus);
   renderRegenerateControls(session, body);
+  body.appendChild(renderSessionArtifacts(session, details));
   body.appendChild(variants);
   details.appendChild(summary);
   details.appendChild(body);
@@ -677,7 +740,16 @@ function renderSession(session, index) {
 }
 
 async function renderSavedHandoffs() {
-  const sessions = await shared.getSavedHandoffSessions();
+  const [sessions, artifacts] = await Promise.all([
+    shared.getSavedHandoffSessions(),
+    shared.getSavedArtifacts()
+  ]);
+  artifactsBySessionId = artifacts.reduce((map, artifact) => {
+    const items = map.get(artifact.sessionId) || [];
+    items.push(artifact);
+    map.set(artifact.sessionId, items);
+    return map;
+  }, new Map());
   emptyStateEl.hidden = sessions.length > 0;
   handoffListEl.textContent = "";
   sessions.forEach(renderSession);

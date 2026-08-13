@@ -9,7 +9,8 @@
     summaryMode: "continueIt.summaryMode",
     chunkCursor: "continueIt.chunkCursor",
     history: "continueIt.handoffHistory",
-    savedHandoffs: "continueIt.savedHandoffs"
+    savedHandoffs: "continueIt.savedHandoffs",
+    artifacts: "continueIt.sessionArtifacts"
   };
   const DEFAULT_SUMMARY_MODE = "medium";
   const SUMMARY_MODES = {
@@ -46,6 +47,7 @@
     transcriptChunkChars: 12000,
     recommendedStorageWarningBytes: 4000000,
     maxHistoryEntries: 100,
+    maxArtifactsPerSession: 250,
     maxSummaryPreviewChars: 2000
   };
   const AI_MODE_LABELS = {
@@ -497,7 +499,8 @@
       stats,
       diagnostics: input.diagnostics || {},
       warnings,
-      detectedFiles: extractFileMentions(messages, 12)
+      detectedFiles: extractFileMentions(messages, 12),
+      sourceArtifacts: sanitizeSourceArtifacts(input.sourceArtifacts || [], input.pageUrl || "")
     };
 
     return handoff;
@@ -621,6 +624,7 @@
       stats: handoff.stats,
       diagnostics: handoff.diagnostics,
       detectedFiles: handoff.detectedFiles,
+      sourceArtifacts: handoff.sourceArtifacts || [],
       customPrompt: handoff.customPrompt || null,
       messages: handoff.messages
     }, null, 2);
@@ -690,6 +694,232 @@
     return handoff?.sessionId || handoff?.id || `session_${Date.now()}`;
   }
 
+  function slugifyFilePart(value, fallback = "session") {
+    return normalizeText(value || fallback)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 72) || fallback;
+  }
+
+  function artifactIdFor(handoffId, kind, suffix = "") {
+    const extra = suffix ? `_${suffix}` : "";
+    return `${handoffId}_${kind}${extra}`;
+  }
+
+  function artifactMetadata(artifact) {
+    const { content, ...metadata } = artifact;
+    return metadata;
+  }
+
+  function buildSummaryMarkdown(handoff) {
+    const lines = [
+      `# ${handoff.pageTitle || `${handoff.source || "Unknown"} handoff summary`}`,
+      "",
+      `- Source: ${handoff.source || "Unknown"}`,
+      `- Session URL: ${handoff.pageUrl || "Not captured"}`,
+      `- Created: ${handoff.createdAt || "Unknown"}`,
+      `- Summary mode: ${handoff.summaryMode || DEFAULT_SUMMARY_MODE}`,
+      `- Summary source: ${handoff.summarySource || "Local (no AI)"}`,
+      `- Messages: ${handoff.stats?.totalMessages || 0}`,
+      `- Assistant replies: ${handoff.stats?.assistantMessages || 0}`,
+      "",
+      "## Summary",
+      "",
+      handoff.summary || "No summary captured."
+    ];
+    if (handoff.warnings?.length) {
+      lines.push("", "## Warnings", "", ...handoff.warnings.map((warning) => `- ${warning}`));
+    }
+    if (handoff.detectedFiles?.length) {
+      lines.push("", "## Detected References", "", ...handoff.detectedFiles.map((item) => `- ${item}`));
+    }
+    if (handoff.sourceArtifacts?.length) {
+      lines.push(
+        "",
+        "## Source Files",
+        "",
+        ...handoff.sourceArtifacts.map((artifact) => `- ${artifact.title} (${artifact.fileType || "File"})${artifact.downloadUrl ? ` - ${artifact.downloadUrl}` : ""}`)
+      );
+    }
+    return lines.join("\n");
+  }
+
+  function createArtifact({ handoff, kind, title, fileName, mimeType, content }) {
+    const text = typeof content === "string" ? content : JSON.stringify(content, null, 2);
+    return {
+      id: artifactIdFor(handoff.id, kind, hashString(fileName).toString(36)),
+      sessionId: handoff.sessionId || sessionIdForHandoff(handoff),
+      handoffId: handoff.id,
+      kind,
+      title,
+      fileName,
+      mimeType,
+      sizeBytes: estimateSizeBytes(text),
+      hash: String(hashString(text)),
+      createdAt: handoff.createdAt || new Date().toISOString(),
+      sourceUrl: handoff.pageUrl || "",
+      storageRef: `chrome.storage.local:${STORAGE_KEYS.artifacts}`,
+      content: text
+    };
+  }
+
+  function sanitizeSourceArtifacts(items = [], pageUrl = "") {
+    const seen = new Set();
+    return items.map((item, index) => {
+      const title = cleanMessageText(item.title || item.fileName || `Source file ${index + 1}`);
+      const visibleText = truncateText(item.visibleText || "", 1200);
+      const downloadUrl = typeof item.downloadUrl === "string" ? item.downloadUrl : "";
+      const fileType = cleanMessageText(item.fileType || "File");
+      const key = `${title.toLowerCase()}|${downloadUrl}|${fileType.toLowerCase()}`;
+      if (!title || seen.has(key)) {
+        return null;
+      }
+      seen.add(key);
+      return {
+        id: item.id || `source_${hashString(key)}`,
+        title,
+        fileType,
+        sourceUrl: item.sourceUrl || pageUrl || "",
+        downloadUrl,
+        visibleText,
+        provider: item.provider || "",
+        capturedAt: item.capturedAt || new Date().toISOString()
+      };
+    }).filter(Boolean).slice(0, 50);
+  }
+
+  function buildSourceArtifactContent(sourceArtifact, handoff) {
+    return {
+      schemaVersion: 1,
+      kind: "source-file-reference",
+      title: sourceArtifact.title,
+      fileType: sourceArtifact.fileType,
+      sourceUrl: sourceArtifact.sourceUrl || handoff.pageUrl || "",
+      downloadUrl: sourceArtifact.downloadUrl || "",
+      provider: sourceArtifact.provider || handoff.source || "",
+      capturedAt: sourceArtifact.capturedAt || handoff.createdAt || "",
+      visibleText: sourceArtifact.visibleText || "",
+      note: sourceArtifact.downloadUrl
+        ? "The extension captured a visible source file card and its link. File bytes were not fetched automatically."
+        : "The extension captured a visible source file card. The site did not expose a direct file URL to the content script."
+    };
+  }
+
+  function buildArtifactsForHandoff(handoff) {
+    const packageInfo = buildPromptPackage(handoff);
+    const sessionId = handoff.sessionId || sessionIdForHandoff(handoff);
+    const titleSlug = slugifyFilePart(handoff.pageTitle || handoff.source || sessionId);
+    const modeSlug = slugifyFilePart(aiModeForHandoff(handoff), "local");
+    const basePath = `${titleSlug}/${handoff.id}`;
+    const artifacts = [
+      createArtifact({
+        handoff,
+        kind: "raw-json",
+        title: "Raw transcript JSON",
+        fileName: `${basePath}/raw-transcript.json`,
+        mimeType: "application/json",
+        content: packageInfo.rawJson
+      }),
+      createArtifact({
+        handoff,
+        kind: "summary-md",
+        title: "Summary markdown",
+        fileName: `${basePath}/summary-${modeSlug}.md`,
+        mimeType: "text/markdown",
+        content: buildSummaryMarkdown(handoff)
+      }),
+      createArtifact({
+        handoff,
+        kind: "handoff-prompt-md",
+        title: "Recommended handoff prompt",
+        fileName: `${basePath}/recommended-handoff-prompt.md`,
+        mimeType: "text/markdown",
+        content: packageInfo.recommendedInsertPrompt
+      })
+    ];
+
+    if (packageInfo.recommendedMode === "staged") {
+      artifacts.push(createArtifact({
+        handoff,
+        kind: "starter-prompt-md",
+        title: "First transfer prompt",
+        fileName: `${basePath}/first-transfer-prompt.md`,
+        mimeType: "text/markdown",
+        content: packageInfo.starterPrompt
+      }));
+    }
+
+    if (packageInfo.recommendedMode === "staged") {
+      packageInfo.chunkPrompts.forEach((chunkPrompt, index) => {
+        const part = String(index + 1).padStart(3, "0");
+        artifacts.push(createArtifact({
+          handoff,
+          kind: "transcript-chunk-md",
+          title: `Transcript chunk ${index + 1}/${packageInfo.chunkCount}`,
+          fileName: `${basePath}/transcript-chunks/part-${part}-of-${String(packageInfo.chunkCount).padStart(3, "0")}.md`,
+          mimeType: "text/markdown",
+          content: chunkPrompt
+        }));
+      });
+    }
+
+    (handoff.sourceArtifacts || []).forEach((sourceArtifact, index) => {
+      const part = String(index + 1).padStart(3, "0");
+      artifacts.push(createArtifact({
+        handoff,
+        kind: "source-file-reference-json",
+        title: `Source file: ${sourceArtifact.title}`,
+        fileName: `${basePath}/source-files/source-${part}-${slugifyFilePart(sourceArtifact.title, "file")}.json`,
+        mimeType: "application/json",
+        content: buildSourceArtifactContent(sourceArtifact, handoff)
+      }));
+    });
+
+    const manifestArtifacts = artifacts.map(artifactMetadata);
+    artifacts.push(createArtifact({
+      handoff,
+      kind: "manifest-json",
+      title: "Session artifact manifest",
+      fileName: `${basePath}/manifest.json`,
+      mimeType: "application/json",
+      content: {
+        schemaVersion: 1,
+        sessionId,
+        handoffId: handoff.id,
+        generatedAt: new Date().toISOString(),
+        source: handoff.source || "Unknown",
+        pageTitle: handoff.pageTitle || "",
+        pageUrl: handoff.pageUrl || "",
+        summaryMode: handoff.summaryMode || DEFAULT_SUMMARY_MODE,
+        summarySource: handoff.summarySource || "Local (no AI)",
+        aiMode: aiModeForHandoff(handoff),
+        stats: handoff.stats || {},
+        sourceArtifacts: handoff.sourceArtifacts || [],
+        artifacts: manifestArtifacts
+      }
+    }));
+
+    return artifacts;
+  }
+
+  function trimArtifactsBySession(artifacts) {
+    const grouped = new Map();
+    artifacts.forEach((artifact) => {
+      const sessionId = artifact.sessionId || "unknown-session";
+      if (!grouped.has(sessionId)) {
+        grouped.set(sessionId, []);
+      }
+      grouped.get(sessionId).push(artifact);
+    });
+
+    return Array.from(grouped.values()).flatMap((items) => {
+      return items
+        .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
+        .slice(0, LIMITS.maxArtifactsPerSession);
+    });
+  }
+
   function getStorage(keys) {
     return new Promise((resolve) => {
       chrome.storage.local.get(keys, (result) => resolve(result || {}));
@@ -729,8 +959,9 @@
     const {
       [STORAGE_KEYS.history]: existingHistory = [],
       [STORAGE_KEYS.savedHandoffs]: existingSavedHandoffs = {},
-      [STORAGE_KEYS.chunkCursor]: existingChunkCursors = {}
-    } = await getStorage([STORAGE_KEYS.history, STORAGE_KEYS.savedHandoffs, STORAGE_KEYS.chunkCursor]);
+      [STORAGE_KEYS.chunkCursor]: existingChunkCursors = {},
+      [STORAGE_KEYS.artifacts]: existingArtifacts = {}
+    } = await getStorage([STORAGE_KEYS.history, STORAGE_KEYS.savedHandoffs, STORAGE_KEYS.chunkCursor, STORAGE_KEYS.artifacts]);
     const sessionId = sessionIdForHandoff(handoff);
     handoff.sessionId = sessionId;
     handoff.aiMode = aiModeForHandoff(handoff);
@@ -755,12 +986,22 @@
         [handoff.id]: handoff
       }).filter(([id]) => retainedIds.has(id))
     );
+    const nextArtifactsForHandoff = buildArtifactsForHandoff(handoff);
+    const artifactMap = {
+      ...existingArtifacts,
+      ...Object.fromEntries(nextArtifactsForHandoff.map((artifact) => [artifact.id, artifact]))
+    };
+    const nextArtifacts = Object.fromEntries(
+      trimArtifactsBySession(Object.values(artifactMap).filter((artifact) => retainedIds.has(artifact.handoffId)))
+        .map((artifact) => [artifact.id, artifact])
+    );
 
     try {
       await setStorage({
         [STORAGE_KEYS.latest]: handoff,
         [STORAGE_KEYS.history]: nextHistory,
         [STORAGE_KEYS.savedHandoffs]: nextSavedHandoffs,
+        [STORAGE_KEYS.artifacts]: nextArtifacts,
         [STORAGE_KEYS.chunkCursor]: { ...existingChunkCursors, [handoff.id]: 0 }
       });
       return { ok: true };
@@ -788,6 +1029,17 @@
         hasFullHandoff: Boolean(handoff)
       };
     });
+  }
+
+  async function getSavedArtifacts() {
+    const result = await getStorage([STORAGE_KEYS.artifacts]);
+    return Object.values(result[STORAGE_KEYS.artifacts] || {})
+      .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+  }
+
+  async function getSessionArtifacts(sessionId) {
+    const artifacts = await getSavedArtifacts();
+    return artifacts.filter((artifact) => artifact.sessionId === sessionId);
   }
 
   async function getSavedHandoffSessions() {
@@ -895,8 +1147,8 @@
     }
   }
 
-  function downloadTextFile(filename, content) {
-    const blob = new Blob([content], { type: "application/json;charset=utf-8" });
+  function downloadTextFile(filename, content, mimeType = "application/json;charset=utf-8") {
+    const blob = new Blob([content], { type: mimeType });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
@@ -958,6 +1210,8 @@
     saveHandoff,
     getHandoff,
     getSavedHandoffs,
+    getSavedArtifacts,
+    getSessionArtifacts,
     getSavedHandoffSessions,
     clearHandoff,
     getSummaryMode,

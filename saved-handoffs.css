@@ -460,6 +460,66 @@ h2 {
   width: 100%;
 }
 
+.artifact-section {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.artifact-section > summary {
+  cursor: pointer;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.artifact-list {
+  display: grid;
+  gap: 8px;
+  border-top: 1px solid #eef2f7;
+  padding: 10px 12px 12px;
+}
+
+.artifact-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid #eef2f7;
+  border-radius: 8px;
+  background: #fcfcfd;
+  padding: 10px;
+}
+
+.artifact-info {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.artifact-info strong {
+  font-size: 13px;
+}
+
+.artifact-info span,
+.artifact-empty {
+  color: #475467;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.artifact-info span {
+  overflow-wrap: anywhere;
+}
+
+.artifact-empty {
+  margin: 0;
+}
+
+.artifact-actions {
+  flex: 0 0 auto;
+}
+
 .regenerate-note {
   margin: 0;
   color: #475467;
@@ -572,6 +632,7 @@ button:disabled {
   .radio-group,
   .session-summary,
   .session-meta-row,
+  .artifact-row,
   .regenerate-panel,
   .regenerate-controls,
   .actions {
