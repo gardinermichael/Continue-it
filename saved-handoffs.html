@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Saved handoffs</title>
+    <link rel="stylesheet" href="saved-handoffs.css" />
+  </head>
+  <body>
+    <main class="page">
+      <header class="page-header">
+        <p class="eyebrow">Continue it</p>
+        <h1>Saved handoffs</h1>
+        <p class="intro">Review recent exported sessions, compare generated handoff variants, and regenerate a handoff with another AI setting.</p>
+      </header>
+
+      <details class="settings-panel" aria-label="Archive export settings">
+        <summary class="config-summary">Config</summary>
+        <section class="settings-card">
+          <div class="summary-mode-config">
+            <h2>Default export mode</h2>
+            <label class="field-label" for="summaryMode">Choose how detailed generated summaries should be.</label>
+            <select id="summaryMode">
+              <option value="short">Short</option>
+              <option value="medium">Medium</option>
+              <option value="detailed">Detailed</option>
+            </select>
+          </div>
+
+          <h2>AI summary mode</h2>
+          <p class="field-label">Choose how regenerated archive summaries are generated.</p>
+          <div class="radio-group">
+            <label class="radio-option"><input type="radio" name="aiMode" value="none" /> <span><strong>No AI</strong> - local, free, private, works offline</span></label>
+            <label class="radio-option"><input type="radio" name="aiMode" value="builtin" /> <span><strong>Chrome built-in AI</strong> - on-device, no key</span></label>
+            <label class="radio-option"><input type="radio" name="aiMode" value="server" /> <span><strong>Server AI</strong> - use a configured backend</span></label>
+            <label class="radio-option"><input type="radio" name="aiMode" value="byok" /> <span><strong>Custom API key</strong> - unlimited, free providers</span></label>
+          </div>
+
+          <div id="builtinSettings" class="subpanel" hidden>
+            <p class="hint">Uses Chrome's built-in Gemini Nano model when it is available on this device. No API key or backend is used.</p>
+            <div class="inline-row">
+              <button id="testBuiltIn" type="button" class="secondary">Test Chrome AI</button>
+            </div>
+          </div>
+
+          <div id="serverSettings" class="subpanel" hidden>
+            <label class="field-label" for="serverUrl">Server URL</label>
+            <input id="serverUrl" type="text" placeholder="http://localhost:8787" />
+            <p id="quotaInfo" class="hint"></p>
+          </div>
+
+          <div id="byokSettings" class="subpanel" hidden>
+            <label class="field-label" for="providerSelect">Free provider</label>
+            <select id="providerSelect"></select>
+            <p id="providerNote" class="hint"></p>
+            <a id="providerKeyLink" class="link" href="#" target="_blank" rel="noopener noreferrer" hidden>Get a free API key</a>
+            <a id="providerModelsLink" class="link" href="#" target="_blank" rel="noopener noreferrer" hidden>Browse free models</a>
+            <label class="field-label" for="byokBaseUrl">Base URL</label>
+            <input id="byokBaseUrl" type="text" placeholder="https://openrouter.ai/api/v1" />
+            <label class="field-label" for="byokModel">Model</label>
+            <input id="byokModel" type="text" placeholder="openrouter/free" />
+            <label class="field-label" for="byokApiKey">API key</label>
+            <input id="byokApiKey" type="password" placeholder="Paste your API key" autocomplete="off" />
+            <div class="inline-row">
+              <button id="testAi" type="button" class="secondary">Test connection</button>
+            </div>
+          </div>
+
+          <p id="testStatus" class="test-status" hidden></p>
+          <button id="saveAi" type="button">Save AI settings</button>
+          <p id="saveAiFeedback" class="save-feedback" aria-live="polite"></p>
+        </section>
+      </details>
+
+      <section id="emptyState" class="empty-state" hidden>
+        <h2>No saved handoffs yet</h2>
+        <p>Export a conversation and save the recommended prompt to build this list.</p>
+      </section>
+
+      <section id="handoffList" class="handoff-list" aria-label="Saved handoffs"></section>
+    </main>
+    <script src="shared-handoff.js"></script>
+    <script src="shared-ai.js"></script>
+    <script src="saved-handoffs.js"></script>
+  </body>
+</html>

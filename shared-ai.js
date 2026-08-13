@@ -35,9 +35,10 @@
       id: "openrouter",
       name: "OpenRouter",
       baseUrl: "https://openrouter.ai/api/v1",
-      model: "google/gemma-4-26b-a4b-it:free",
+      model: "openrouter/free",
       keyUrl: "https://openrouter.ai/keys",
-      note: "20+ free models (pick one ending in :free). ~50 requests/day free, no card."
+      modelUrl: "https://openrouter.ai/collections/free-models",
+      note: "Routes to OpenRouter's current free models collection. ~50 requests/day free, no card."
     },
     {
       id: "google",
@@ -330,7 +331,18 @@
 
   async function summarizeConversation({ source, messages, mode, shared }) {
     const settings = await getSettings();
-    if (settings.mode === AI_MODES.none) {
+    return summarizeConversationWithMode({
+      aiMode: settings.mode,
+      source,
+      messages,
+      mode,
+      shared
+    });
+  }
+
+  async function summarizeConversationWithMode({ aiMode, source, messages, mode, shared }) {
+    const selectedMode = AI_MODES[aiMode] || AI_MODES.none;
+    if (selectedMode === AI_MODES.none) {
       return { used: false, summary: null, error: null, quota: null };
     }
 
@@ -340,7 +352,7 @@
     const response = await sendToWorker({
       type: "continueIt.summarize",
       payload: {
-        aiMode: settings.mode,
+        aiMode: selectedMode,
         source,
         mode,
         clientId,
@@ -391,6 +403,7 @@
     requestOriginPermission,
     prewarmBuiltInModel,
     summarizeConversation,
+    summarizeConversationWithMode,
     testConnection
   };
 })();

@@ -3,7 +3,7 @@
   "name": "Continue it",
   "version": "0.7.0",
   "description": "Migrate conversation context between Claude, ChatGPT, Gemini, Grok, Perplexity, and more with long-chat support.",
-  "permissions": ["storage", "unlimitedStorage", "clipboardWrite"],
+  "permissions": ["storage", "unlimitedStorage", "clipboardWrite", "contextMenus"],
   "optional_host_permissions": ["http://*/*", "https://*/*"],
   "background": {
     "service_worker": "background.js"

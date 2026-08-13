@@ -200,6 +200,151 @@
     });
   }
 
+  function sourceArtifactTitle(text) {
+    const lines = text
+      .split(/\n+/)
+      .map((line) => shared.normalizeText(line))
+      .filter(Boolean)
+      .filter((line) => !/^download(?: all)?$/i.test(line))
+      .filter((line) => !/^(document|file|attachment)\b/i.test(line));
+    return lines[0] || shared.truncateText(text, 80);
+  }
+
+  function sourceArtifactType(text, href) {
+    const combined = `${text} ${href || ""}`.toLowerCase();
+    const extension = combined.match(/\b(md|markdown|json|txt|csv|pdf|docx?|xlsx?|pptx?|html|zip)\b/i)?.[1];
+    if (extension) {
+      return extension.toUpperCase();
+    }
+    if (/document/i.test(text)) return "Document";
+    if (/attachment/i.test(text)) return "Attachment";
+    return "File";
+  }
+
+  function looksLikeSourceFileCard(node, text, href) {
+    if (!text || text.length < 4 || text.length > 1200) {
+      return false;
+    }
+    const lower = text.toLowerCase();
+    const hasFileAction = /\b(download|open|document|attachment|file)\b/.test(lower);
+    const hasKnownType = /\b(md|markdown|json|txt|csv|pdf|docx?|xlsx?|pptx?|html|zip)\b/i.test(text) || /\.(md|json|txt|csv|pdf|docx?|xlsx?|pptx?|html|zip)(\b|[?#])/i.test(href || "");
+    const classHints = [
+      node.getAttribute?.("data-testid") || "",
+      node.getAttribute?.("aria-label") || "",
+      typeof node.className === "string" ? node.className : ""
+    ].join(" ").toLowerCase();
+    return (hasFileAction && hasKnownType) || /\b(file|attachment|document|artifact)\b/.test(classHints);
+  }
+
+  function sourceArtifactCardFor(node) {
+    let current = node;
+    let best = node;
+    for (let depth = 0; current && depth < 4; depth += 1) {
+      const text = getNodeText(current);
+      if (text && text.length <= 1200 && /download|document|attachment|file|\.md|\.pdf|\.json|\.txt/i.test(text)) {
+        best = current;
+      }
+      current = current.parentElement;
+    }
+    return best;
+  }
+
+  function collectSourceArtifacts() {
+    const root = getConversationRoot();
+    const nodes = Array.from(root.querySelectorAll([
+      "a[href]",
+      "button",
+      "[role='button']",
+      "[data-testid*='file' i]",
+      "[data-testid*='attachment' i]",
+      "[data-testid*='document' i]",
+      "[class*='file' i]",
+      "[class*='attachment' i]",
+      "[class*='document' i]",
+      "[class*='artifact' i]"
+    ].join(",")));
+    const seen = new Set();
+    const artifacts = [];
+
+    nodes.forEach((node) => {
+      if (!isVisible(node) || node.closest(".continue-it-overlay")) {
+        return;
+      }
+      const card = sourceArtifactCardFor(node);
+      if (!card || !isVisible(card)) {
+        return;
+      }
+      const text = getNodeText(card);
+      const link = card.matches?.("a[href]") ? card : card.querySelector?.("a[href]");
+      const href = link?.href || "";
+      const sanitizedHref = sanitizeSourceArtifactUrl(href);
+      if (!looksLikeSourceFileCard(card, text, href)) {
+        return;
+      }
+      const title = sourceArtifactTitle(text);
+      const fileType = sourceArtifactType(text, href);
+      const key = `${shared.normalizeText(title).toLowerCase()}|${sanitizedHref.url}|${fileType}`;
+      if (seen.has(key)) {
+        return;
+      }
+      seen.add(key);
+      artifacts.push({
+        title,
+        fileType,
+        sourceUrl: window.location.href,
+        downloadUrl: sanitizedHref.url,
+        downloadUrlRedacted: sanitizedHref.redacted,
+        visibleText: text,
+        provider: provider.id,
+        capturedAt: new Date().toISOString()
+      });
+    });
+
+    return artifacts.slice(0, 50);
+  }
+
+  function sanitizeSourceArtifactUrl(href) {
+    if (!href) {
+      return { url: "", redacted: false };
+    }
+
+    let url;
+    try {
+      url = new URL(href, window.location.href);
+    } catch (error) {
+      return { url: "", redacted: true };
+    }
+
+    const sensitiveParamPattern = /(^|[-_])(access[_-]?token|auth|authorization|credential|expires?|jwt|key|policy|secret|session|signature|sig|token)([-_]|$)|^x-amz-|^x-goog-|^googleaccessid$|^awsaccesskeyid$|^key-pair-id$|^response-/i;
+    let redacted = false;
+    Array.from(url.searchParams.keys()).forEach((name) => {
+      if (sensitiveParamPattern.test(name)) {
+        url.searchParams.delete(name);
+        redacted = true;
+      }
+    });
+    if (redacted && !url.searchParams.toString()) {
+      url.search = "";
+    }
+    url.hash = "";
+    return { url: url.toString(), redacted };
+  }
+
+  function sourceArtifactKey(artifact) {
+    return `${shared.normalizeText(artifact.title).toLowerCase()}|${artifact.downloadUrl || ""}|${artifact.fileType || ""}`;
+  }
+
+  function rawMessagesFromCandidates(candidates) {
+    return (candidates || []).map((candidate, index) => ({
+      id: candidate.key || `raw_${index + 1}`,
+      role: candidate.role || "unknown",
+      text: candidate.text || "",
+      step: Number.isFinite(candidate.step) ? candidate.step : null,
+      top: Number.isFinite(candidate.top) ? Math.round(candidate.top) : null,
+      left: Number.isFinite(candidate.left) ? Math.round(candidate.left) : null
+    }));
+  }
+
   function mergeCandidates(nodes, step) {
     const filtered = [];
     nodes.forEach((node) => {
@@ -339,6 +484,7 @@
     let hitStepLimit = true;
     let scanSteps = 0;
     const stepCounts = [];
+    const sourceArtifactCache = new Map();
 
     // How far we have to scroll back up is the only real measure of scan
     // progress. Virtualized transcripts can grow while we walk up, so the
@@ -366,6 +512,9 @@
       scanSteps = step + 1;
       const candidateNodes = collectCandidateNodes();
       const candidates = mergeCandidates(candidateNodes, step);
+      collectSourceArtifacts().forEach((artifact) => {
+        sourceArtifactCache.set(sourceArtifactKey(artifact), artifact);
+      });
       candidates.forEach((candidate) => {
         if (!cache.has(candidate.key)) {
           cache.set(candidate.key, candidate);
@@ -416,6 +565,9 @@
 
     await shared.wait(120);
     scrollRoot.scrollTop = originalScrollTop;
+    collectSourceArtifacts().forEach((artifact) => {
+      sourceArtifactCache.set(sourceArtifactKey(artifact), artifact);
+    });
 
     const rawCandidates = [...cache.values()];
     const messages = finalizeMessages(rawCandidates);
@@ -429,7 +581,7 @@
       hitStepLimit
     };
 
-    return { messages, diagnostics, rawCandidates };
+    return { messages, diagnostics, rawCandidates, sourceArtifacts: Array.from(sourceArtifactCache.values()) };
   }
 
   function findComposer() {
@@ -762,7 +914,7 @@
       to: 0.5
     });
 
-    const { messages, diagnostics, rawCandidates } = await captureConversation({
+    const { messages, diagnostics, rawCandidates, sourceArtifacts } = await captureConversation({
       onProgress: ({ fraction, detail }) => progress.set(fraction, detail)
     });
     if (!messages.length) {
@@ -786,7 +938,9 @@
       pageUrl: location.href,
       summaryMode,
       messages,
-      diagnostics
+      rawMessages: rawMessagesFromCandidates(rawCandidates),
+      diagnostics,
+      sourceArtifacts
     });
 
     // Track where the final summary actually came from, so the user gets an

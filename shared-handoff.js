@@ -8,7 +8,9 @@
     latest: "continueIt.latestHandoff",
     summaryMode: "continueIt.summaryMode",
     chunkCursor: "continueIt.chunkCursor",
-    history: "continueIt.handoffHistory"
+    history: "continueIt.handoffHistory",
+    savedHandoffs: "continueIt.savedHandoffs",
+    artifacts: "continueIt.sessionArtifacts"
   };
   const DEFAULT_SUMMARY_MODE = "medium";
   const SUMMARY_MODES = {
@@ -44,8 +46,16 @@
     maxDirectImportTokens: 6500,
     transcriptChunkChars: 12000,
     recommendedStorageWarningBytes: 4000000,
-    maxHistoryEntries: 10,
+    maxHistoryEntries: 100,
+    maxArtifactsPerSession: 250,
     maxSummaryPreviewChars: 2000
+  };
+  const AI_MODE_LABELS = {
+    none: "No AI (local)",
+    builtin: "Chrome built-in AI",
+    server: "Server AI",
+    byok: "Custom API key",
+    failed: "Local fallback after AI failure"
   };
 
   function wait(ms) {
@@ -434,6 +444,7 @@
 
   function buildHandoff(input) {
     const summaryMode = SUMMARY_MODES[input.summaryMode] ? input.summaryMode : DEFAULT_SUMMARY_MODE;
+    const rawMessages = sanitizeRawMessages(input.rawMessages || input.messages || []);
     const seenMessages = new Set();
     const recentKeys = [];
     const messages = (input.messages || []).map((message, index) => ({
@@ -489,7 +500,9 @@
       stats,
       diagnostics: input.diagnostics || {},
       warnings,
-      detectedFiles: extractFileMentions(messages, 12)
+      rawMessages,
+      detectedFiles: extractFileMentions(messages, 12),
+      sourceArtifacts: sanitizeSourceArtifacts(input.sourceArtifacts || [], input.pageUrl || "")
     };
 
     return handoff;
@@ -600,18 +613,22 @@
     const rawJson = JSON.stringify({
       schemaVersion: handoff.schemaVersion,
       id: handoff.id,
+      sessionId: handoff.sessionId || null,
       source: handoff.source,
       createdAt: handoff.createdAt,
       pageTitle: handoff.pageTitle,
       pageUrl: handoff.pageUrl,
       summaryMode: handoff.summaryMode,
       summarySource: handoff.summarySource || null,
+      aiMode: handoff.aiMode || aiModeForHandoff(handoff),
       summary: handoff.summary,
       warnings: handoff.warnings,
       stats: handoff.stats,
       diagnostics: handoff.diagnostics,
       detectedFiles: handoff.detectedFiles,
+      sourceArtifacts: handoff.sourceArtifacts || [],
       customPrompt: handoff.customPrompt || null,
+      rawMessages: handoff.rawMessages || [],
       messages: handoff.messages
     }, null, 2);
 
@@ -660,6 +677,318 @@
     return { ok: true };
   }
 
+  function aiModeForHandoff(handoff) {
+    if (handoff?.aiMode && AI_MODE_LABELS[handoff.aiMode]) {
+      return handoff.aiMode;
+    }
+    const source = handoff?.summarySource || "";
+    if (source === "Chrome built-in AI") return "builtin";
+    if (source === "Server AI (backend API)") return "server";
+    if (source === "Your own API key") return "byok";
+    if (/failed/i.test(source)) return "failed";
+    return "none";
+  }
+
+  function aiLabelForHandoff(handoff) {
+    return AI_MODE_LABELS[aiModeForHandoff(handoff)] || handoff?.summarySource || "Unknown";
+  }
+
+  function sessionIdForHandoff(handoff) {
+    return handoff?.sessionId || handoff?.id || `session_${Date.now()}`;
+  }
+
+  function slugifyFilePart(value, fallback = "session") {
+    return normalizeText(value || fallback)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 72) || fallback;
+  }
+
+  function artifactIdFor(handoffId, kind, suffix = "") {
+    const extra = suffix ? `_${suffix}` : "";
+    return `${handoffId}_${kind}${extra}`;
+  }
+
+  function artifactMetadata(artifact) {
+    const { content, ...metadata } = artifact;
+    return metadata;
+  }
+
+  function buildSummaryMarkdown(handoff) {
+    const lines = [
+      `# ${handoff.pageTitle || `${handoff.source || "Unknown"} handoff summary`}`,
+      "",
+      `- Source: ${handoff.source || "Unknown"}`,
+      `- Session URL: ${handoff.pageUrl || "Not captured"}`,
+      `- Created: ${handoff.createdAt || "Unknown"}`,
+      `- Summary mode: ${handoff.summaryMode || DEFAULT_SUMMARY_MODE}`,
+      `- Summary source: ${handoff.summarySource || "Local (no AI)"}`,
+      `- Messages: ${handoff.stats?.totalMessages || 0}`,
+      `- Assistant replies: ${handoff.stats?.assistantMessages || 0}`,
+      "",
+      "## Summary",
+      "",
+      handoff.summary || "No summary captured."
+    ];
+    if (handoff.warnings?.length) {
+      lines.push("", "## Warnings", "", ...handoff.warnings.map((warning) => `- ${warning}`));
+    }
+    if (handoff.detectedFiles?.length) {
+      lines.push("", "## Detected References", "", ...handoff.detectedFiles.map((item) => `- ${item}`));
+    }
+    if (handoff.sourceArtifacts?.length) {
+      lines.push(
+        "",
+        "## Source Files",
+        "",
+        ...handoff.sourceArtifacts.map((artifact) => {
+          const urlNote = artifact.downloadUrl
+            ? ` - ${artifact.downloadUrl}${artifact.downloadUrlRedacted ? " (sensitive query parameters redacted)" : ""}`
+            : (artifact.downloadUrlRedacted ? " - [download URL redacted]" : "");
+          return `- ${artifact.title} (${artifact.fileType || "File"})${urlNote}`;
+        })
+      );
+    }
+    return lines.join("\n");
+  }
+
+  function createArtifact({ handoff, kind, title, fileName, mimeType, content }) {
+    const text = typeof content === "string" ? content : JSON.stringify(content, null, 2);
+    return {
+      id: artifactIdFor(handoff.id, kind, hashString(fileName).toString(36)),
+      sessionId: handoff.sessionId || sessionIdForHandoff(handoff),
+      handoffId: handoff.id,
+      kind,
+      title,
+      fileName,
+      mimeType,
+      sizeBytes: estimateSizeBytes(text),
+      hash: String(hashString(text)),
+      createdAt: handoff.createdAt || new Date().toISOString(),
+      sourceUrl: handoff.pageUrl || "",
+      storageRef: `chrome.storage.local:${STORAGE_KEYS.artifacts}`,
+      content: text
+    };
+  }
+
+  function sanitizeSourceArtifacts(items = [], pageUrl = "") {
+    const seen = new Set();
+    return items.map((item, index) => {
+      const title = cleanMessageText(item.title || item.fileName || `Source file ${index + 1}`);
+      const visibleText = truncateText(item.visibleText || "", 1200);
+      const downloadUrl = typeof item.downloadUrl === "string" ? item.downloadUrl : "";
+      const fileType = cleanMessageText(item.fileType || "File");
+      const key = `${title.toLowerCase()}|${downloadUrl}|${fileType.toLowerCase()}`;
+      if (!title || seen.has(key)) {
+        return null;
+      }
+      seen.add(key);
+      return {
+        id: item.id || `source_${hashString(key)}`,
+        title,
+        fileType,
+        sourceUrl: item.sourceUrl || pageUrl || "",
+        downloadUrl,
+        downloadUrlRedacted: Boolean(item.downloadUrlRedacted),
+        visibleText,
+        provider: item.provider || "",
+        capturedAt: item.capturedAt || new Date().toISOString()
+      };
+    }).filter(Boolean).slice(0, 50);
+  }
+
+  function sanitizeRawMessages(items = []) {
+    return items.map((item, index) => {
+      const text = cleanMessageText(item.text || "");
+      if (!text) {
+        return null;
+      }
+      return {
+        id: item.id || `raw_${index + 1}`,
+        role: item.role === "assistant" || item.role === "user" ? item.role : "unknown",
+        text,
+        step: Number.isFinite(item.step) ? item.step : null,
+        top: Number.isFinite(item.top) ? item.top : null,
+        left: Number.isFinite(item.left) ? item.left : null
+      };
+    }).filter(Boolean);
+  }
+
+  function buildSourceArtifactContent(sourceArtifact, handoff) {
+    return {
+      schemaVersion: 1,
+      kind: "source-file-reference",
+      title: sourceArtifact.title,
+      fileType: sourceArtifact.fileType,
+      sourceUrl: sourceArtifact.sourceUrl || handoff.pageUrl || "",
+      downloadUrl: sourceArtifact.downloadUrl || "",
+      downloadUrlRedacted: Boolean(sourceArtifact.downloadUrlRedacted),
+      provider: sourceArtifact.provider || handoff.source || "",
+      capturedAt: sourceArtifact.capturedAt || handoff.createdAt || "",
+      visibleText: sourceArtifact.visibleText || "",
+      note: sourceArtifact.downloadUrlRedacted
+        ? "The extension captured a visible source file card and redacted sensitive URL query parameters before storage. File bytes were not fetched automatically."
+        : sourceArtifact.downloadUrl
+        ? "The extension captured a visible source file card and its link. File bytes were not fetched automatically."
+        : "The extension captured a visible source file card. The site did not expose a direct file URL to the content script."
+    };
+  }
+
+  function buildArtifactsForHandoff(handoff) {
+    const packageInfo = buildPromptPackage(handoff);
+    const sessionId = handoff.sessionId || sessionIdForHandoff(handoff);
+    const titleSlug = slugifyFilePart(handoff.pageTitle || handoff.source || sessionId);
+    const modeSlug = slugifyFilePart(aiModeForHandoff(handoff), "local");
+    const basePath = `${titleSlug}/${handoff.id}`;
+    const artifacts = [
+      createArtifact({
+        handoff,
+        kind: "raw-capture-json",
+        title: "Immutable raw capture JSON",
+        fileName: `${basePath}/raw-capture.json`,
+        mimeType: "application/json",
+        content: {
+          schemaVersion: 1,
+          kind: "immutable-raw-capture",
+          sessionId,
+          handoffId: handoff.id,
+          source: handoff.source || "Unknown",
+          pageTitle: handoff.pageTitle || "",
+          pageUrl: handoff.pageUrl || "",
+          capturedAt: handoff.createdAt || "",
+          diagnostics: handoff.diagnostics || {},
+          rawMessages: handoff.rawMessages || []
+        }
+      }),
+      createArtifact({
+        handoff,
+        kind: "normalized-handoff-json",
+        title: "Normalized handoff JSON",
+        fileName: `${basePath}/normalized-handoff.json`,
+        mimeType: "application/json",
+        content: packageInfo.rawJson
+      }),
+      createArtifact({
+        handoff,
+        kind: "summary-md",
+        title: "Summary markdown",
+        fileName: `${basePath}/summary-${modeSlug}.md`,
+        mimeType: "text/markdown",
+        content: buildSummaryMarkdown(handoff)
+      }),
+      createArtifact({
+        handoff,
+        kind: "handoff-prompt-md",
+        title: "Recommended handoff prompt",
+        fileName: `${basePath}/recommended-handoff-prompt.md`,
+        mimeType: "text/markdown",
+        content: packageInfo.recommendedInsertPrompt
+      })
+    ];
+
+    if (packageInfo.recommendedMode === "staged") {
+      artifacts.push(createArtifact({
+        handoff,
+        kind: "starter-prompt-md",
+        title: "First transfer prompt",
+        fileName: `${basePath}/first-transfer-prompt.md`,
+        mimeType: "text/markdown",
+        content: packageInfo.starterPrompt
+      }));
+    }
+
+    if (packageInfo.recommendedMode === "staged") {
+      packageInfo.chunkPrompts.forEach((chunkPrompt, index) => {
+        const part = String(index + 1).padStart(3, "0");
+        artifacts.push(createArtifact({
+          handoff,
+          kind: "transcript-chunk-md",
+          title: `Transcript chunk ${index + 1}/${packageInfo.chunkCount}`,
+          fileName: `${basePath}/transcript-chunks/part-${part}-of-${String(packageInfo.chunkCount).padStart(3, "0")}.md`,
+          mimeType: "text/markdown",
+          content: chunkPrompt
+        }));
+      });
+    }
+
+    (handoff.sourceArtifacts || []).forEach((sourceArtifact, index) => {
+      const part = String(index + 1).padStart(3, "0");
+      artifacts.push(createArtifact({
+        handoff,
+        kind: "source-file-reference-json",
+        title: `Source file: ${sourceArtifact.title}`,
+        fileName: `${basePath}/source-files/source-${part}-${slugifyFilePart(sourceArtifact.title, "file")}.json`,
+        mimeType: "application/json",
+        content: buildSourceArtifactContent(sourceArtifact, handoff)
+      }));
+    });
+
+    const manifestArtifacts = artifacts.map(artifactMetadata);
+    artifacts.push(createArtifact({
+      handoff,
+      kind: "manifest-json",
+      title: "Session artifact manifest",
+      fileName: `${basePath}/manifest.json`,
+      mimeType: "application/json",
+      content: {
+        schemaVersion: 1,
+        sessionId,
+        handoffId: handoff.id,
+        generatedAt: new Date().toISOString(),
+        source: handoff.source || "Unknown",
+        pageTitle: handoff.pageTitle || "",
+        pageUrl: handoff.pageUrl || "",
+        summaryMode: handoff.summaryMode || DEFAULT_SUMMARY_MODE,
+        summarySource: handoff.summarySource || "Local (no AI)",
+        aiMode: aiModeForHandoff(handoff),
+        stats: handoff.stats || {},
+        diagnostics: handoff.diagnostics || {},
+        warnings: handoff.warnings || [],
+        sourceArtifacts: handoff.sourceArtifacts || [],
+        artifacts: manifestArtifacts
+      }
+    }));
+
+    return artifacts;
+  }
+
+  function trimArtifactsBySession(artifacts) {
+    const grouped = new Map();
+    artifacts.forEach((artifact) => {
+      const sessionId = artifact.sessionId || "unknown-session";
+      if (!grouped.has(sessionId)) {
+        grouped.set(sessionId, []);
+      }
+      grouped.get(sessionId).push(artifact);
+    });
+
+    return Array.from(grouped.values()).flatMap((items) => {
+      const bundles = new Map();
+      items.forEach((artifact) => {
+        const bundleId = artifact.handoffId || artifact.id;
+        if (!bundles.has(bundleId)) {
+          bundles.set(bundleId, []);
+        }
+        bundles.get(bundleId).push(artifact);
+      });
+
+      const sortedBundles = Array.from(bundles.values()).sort((a, b) => {
+        const aCreated = Math.max(...a.map((artifact) => new Date(artifact.createdAt || 0).getTime() || 0));
+        const bCreated = Math.max(...b.map((artifact) => new Date(artifact.createdAt || 0).getTime() || 0));
+        return bCreated - aCreated;
+      });
+
+      const kept = [];
+      for (const bundle of sortedBundles) {
+        if (kept.length === 0 || kept.length + bundle.length <= LIMITS.maxArtifactsPerSession) {
+          kept.push(...bundle);
+        }
+      }
+      return kept;
+    });
+  }
+
   function getStorage(keys) {
     return new Promise((resolve) => {
       chrome.storage.local.get(keys, (result) => resolve(result || {}));
@@ -696,23 +1025,53 @@
       return { ok: false, error: validation.error };
     }
 
-    const { [STORAGE_KEYS.history]: existingHistory = [] } = await getStorage([STORAGE_KEYS.history]);
+    const {
+      [STORAGE_KEYS.history]: existingHistory = [],
+      [STORAGE_KEYS.savedHandoffs]: existingSavedHandoffs = {},
+      [STORAGE_KEYS.chunkCursor]: existingChunkCursors = {},
+      [STORAGE_KEYS.artifacts]: existingArtifacts = {}
+    } = await getStorage([STORAGE_KEYS.history, STORAGE_KEYS.savedHandoffs, STORAGE_KEYS.chunkCursor, STORAGE_KEYS.artifacts]);
+    const sessionId = sessionIdForHandoff(handoff);
+    handoff.sessionId = sessionId;
+    handoff.aiMode = aiModeForHandoff(handoff);
     const historyEntry = {
       id: handoff.id,
+      sessionId,
       createdAt: handoff.createdAt,
       source: handoff.source,
       pageTitle: handoff.pageTitle,
+      pageUrl: handoff.pageUrl,
       totalMessages: handoff.stats.totalMessages,
       assistantMessages: handoff.stats.assistantMessages,
-      summaryMode: handoff.summaryMode
+      summaryMode: handoff.summaryMode,
+      summarySource: handoff.summarySource || "Local (no AI)",
+      aiMode: handoff.aiMode
     };
     const nextHistory = [historyEntry, ...existingHistory.filter((item) => item.id !== handoff.id)].slice(0, LIMITS.maxHistoryEntries);
+    const retainedIds = new Set(nextHistory.map((item) => item.id));
+    const nextSavedHandoffs = Object.fromEntries(
+      Object.entries({
+        ...existingSavedHandoffs,
+        [handoff.id]: handoff
+      }).filter(([id]) => retainedIds.has(id))
+    );
+    const nextArtifactsForHandoff = buildArtifactsForHandoff(handoff);
+    const artifactMap = {
+      ...existingArtifacts,
+      ...Object.fromEntries(nextArtifactsForHandoff.map((artifact) => [artifact.id, artifact]))
+    };
+    const nextArtifacts = Object.fromEntries(
+      trimArtifactsBySession(Object.values(artifactMap).filter((artifact) => retainedIds.has(artifact.handoffId)))
+        .map((artifact) => [artifact.id, artifact])
+    );
 
     try {
       await setStorage({
         [STORAGE_KEYS.latest]: handoff,
         [STORAGE_KEYS.history]: nextHistory,
-        [STORAGE_KEYS.chunkCursor]: { [handoff.id]: 0 }
+        [STORAGE_KEYS.savedHandoffs]: nextSavedHandoffs,
+        [STORAGE_KEYS.artifacts]: nextArtifacts,
+        [STORAGE_KEYS.chunkCursor]: { ...existingChunkCursors, [handoff.id]: 0 }
       });
       return { ok: true };
     } catch (error) {
@@ -725,14 +1084,126 @@
     return result[STORAGE_KEYS.latest] || null;
   }
 
+  async function getSavedHandoffs() {
+    const result = await getStorage([STORAGE_KEYS.history, STORAGE_KEYS.savedHandoffs, STORAGE_KEYS.latest]);
+    const history = Array.isArray(result[STORAGE_KEYS.history]) ? result[STORAGE_KEYS.history] : [];
+    const savedHandoffs = result[STORAGE_KEYS.savedHandoffs] || {};
+    const latest = result[STORAGE_KEYS.latest] || null;
+
+    return history.map((entry) => {
+      const handoff = savedHandoffs[entry.id] || (latest && latest.id === entry.id ? latest : null);
+      return {
+        ...entry,
+        handoff: handoff || null,
+        hasFullHandoff: Boolean(handoff)
+      };
+    });
+  }
+
+  async function getSavedArtifacts() {
+    const result = await getStorage([STORAGE_KEYS.artifacts]);
+    return Object.values(result[STORAGE_KEYS.artifacts] || {})
+      .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+  }
+
+  async function getSessionArtifacts(sessionId) {
+    const artifacts = await getSavedArtifacts();
+    return artifacts.filter((artifact) => artifact.sessionId === sessionId);
+  }
+
+  async function getSavedHandoffSessions() {
+    const entries = await getSavedHandoffs();
+    const sessionsById = new Map();
+
+    entries.forEach((entry) => {
+      const handoff = entry.handoff || null;
+      const sessionId = entry.sessionId || handoff?.sessionId || entry.id;
+      if (!sessionsById.has(sessionId)) {
+        sessionsById.set(sessionId, {
+          id: sessionId,
+          source: entry.source || handoff?.source || "Unknown source",
+          pageTitle: entry.pageTitle || handoff?.pageTitle || "",
+          pageUrl: entry.pageUrl || handoff?.pageUrl || "",
+          createdAt: entry.createdAt || handoff?.createdAt || "",
+          updatedAt: entry.createdAt || handoff?.createdAt || "",
+          totalMessages: entry.totalMessages || handoff?.stats?.totalMessages || 0,
+          assistantMessages: entry.assistantMessages || handoff?.stats?.assistantMessages || 0,
+          variants: []
+        });
+      }
+
+      const session = sessionsById.get(sessionId);
+      const createdAt = entry.createdAt || handoff?.createdAt || "";
+      if (createdAt && (!session.updatedAt || new Date(createdAt) > new Date(session.updatedAt))) {
+        session.updatedAt = createdAt;
+      }
+      session.variants.push({
+        id: entry.id,
+        sessionId,
+        createdAt,
+        summaryMode: entry.summaryMode || handoff?.summaryMode || DEFAULT_SUMMARY_MODE,
+        summarySource: entry.summarySource || handoff?.summarySource || "Local (no AI)",
+        aiMode: entry.aiMode || aiModeForHandoff(handoff),
+        aiLabel: handoff ? aiLabelForHandoff(handoff) : "Metadata only",
+        handoff,
+        hasFullHandoff: Boolean(handoff)
+      });
+    });
+
+    return Array.from(sessionsById.values())
+      .map((session) => ({
+        ...session,
+        variants: session.variants.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
+      }))
+      .sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0));
+  }
+
   async function clearHandoff() {
     const current = await getHandoff();
-    if (current) {
-      const cursors = await getStorage([STORAGE_KEYS.chunkCursor]);
-      const nextCursors = { ...(cursors[STORAGE_KEYS.chunkCursor] || {}) };
-      delete nextCursors[current.id];
-      await setStorage({ [STORAGE_KEYS.chunkCursor]: nextCursors });
+    if (!current) {
+      await removeStorage([STORAGE_KEYS.latest]);
+      return;
     }
+
+    const sessionId = sessionIdForHandoff(current);
+    const {
+      [STORAGE_KEYS.history]: existingHistory = [],
+      [STORAGE_KEYS.savedHandoffs]: existingSavedHandoffs = {},
+      [STORAGE_KEYS.chunkCursor]: existingChunkCursors = {},
+      [STORAGE_KEYS.artifacts]: existingArtifacts = {}
+    } = await getStorage([STORAGE_KEYS.history, STORAGE_KEYS.savedHandoffs, STORAGE_KEYS.chunkCursor, STORAGE_KEYS.artifacts]);
+    const removedHandoffIds = new Set([current.id]);
+    const nextHistory = (Array.isArray(existingHistory) ? existingHistory : []).filter((entry) => {
+      const entrySessionId = entry.sessionId || entry.id;
+      const remove = entrySessionId === sessionId || entry.id === current.id;
+      if (remove && entry.id) {
+        removedHandoffIds.add(entry.id);
+      }
+      return !remove;
+    });
+    const nextSavedHandoffs = Object.fromEntries(
+      Object.entries(existingSavedHandoffs || {}).filter(([id, handoff]) => {
+        const remove = id === current.id || sessionIdForHandoff(handoff) === sessionId;
+        if (remove) {
+          removedHandoffIds.add(id);
+        }
+        return !remove;
+      })
+    );
+    const nextArtifacts = Object.fromEntries(
+      Object.entries(existingArtifacts || {}).filter(([, artifact]) => {
+        return artifact.sessionId !== sessionId && !removedHandoffIds.has(artifact.handoffId);
+      })
+    );
+    const nextCursors = { ...(existingChunkCursors || {}) };
+    removedHandoffIds.forEach((id) => delete nextCursors[id]);
+
+    await setStorage({
+      [STORAGE_KEYS.history]: nextHistory,
+      [STORAGE_KEYS.savedHandoffs]: nextSavedHandoffs,
+      [STORAGE_KEYS.artifacts]: nextArtifacts,
+      [STORAGE_KEYS.chunkCursor]: nextCursors
+    });
     await removeStorage([STORAGE_KEYS.latest]);
   }
 
@@ -783,8 +1254,8 @@
     }
   }
 
-  function downloadTextFile(filename, content) {
-    const blob = new Blob([content], { type: "application/json;charset=utf-8" });
+  function downloadTextFile(filename, content, mimeType = "application/json;charset=utf-8") {
+    const blob = new Blob([content], { type: mimeType });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
@@ -827,6 +1298,7 @@
     DEFAULT_SUMMARY_MODE,
     SUMMARY_MODES,
     LIMITS,
+    AI_MODE_LABELS,
     wait,
     normalizeText,
     cleanMessageText,
@@ -840,8 +1312,14 @@
     buildHandoff,
     buildPromptPackage,
     validateHandoff,
+    aiModeForHandoff,
+    aiLabelForHandoff,
     saveHandoff,
     getHandoff,
+    getSavedHandoffs,
+    getSavedArtifacts,
+    getSessionArtifacts,
+    getSavedHandoffSessions,
     clearHandoff,
     getSummaryMode,
     setSummaryMode,
