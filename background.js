@@ -222,11 +222,11 @@ function normalizeContextUsage(measured) {
 }
 
 async function measurePromptContextUsage(session, prompt) {
-  if (session && typeof session.measureInputUsage === "function") {
-    return normalizeContextUsage(await session.measureInputUsage(prompt));
-  }
   if (session && typeof session.measureContextUsage === "function") {
     return normalizeContextUsage(await session.measureContextUsage(prompt));
+  }
+  if (session && typeof session.measureInputUsage === "function") {
+    return normalizeContextUsage(await session.measureInputUsage(prompt));
   }
   if (session && typeof session.countPromptTokens === "function") {
     return normalizeContextUsage(await session.countPromptTokens(prompt));
@@ -235,18 +235,13 @@ async function measurePromptContextUsage(session, prompt) {
 }
 
 function getAvailablePromptQuota(session) {
-  const inputQuota = finitePositiveNumber(session?.inputQuota);
-  if (inputQuota) {
-    return inputQuota;
-  }
-
   const contextWindow = finitePositiveNumber(session?.contextWindow);
-  if (!contextWindow) {
-    return null;
+  if (contextWindow) {
+    const contextUsage = finitePositiveNumber(session?.contextUsage) || 0;
+    return Math.max(1, contextWindow - contextUsage);
   }
 
-  const contextUsage = finitePositiveNumber(session?.contextUsage) || 0;
-  return Math.max(1, contextWindow - contextUsage);
+  return finitePositiveNumber(session?.inputQuota);
 }
 
 function truncateConversationExcerpt(text, maxChars) {
