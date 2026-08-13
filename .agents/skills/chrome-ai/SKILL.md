@@ -1,0 +1,75 @@
+---
+name: chrome-ai
+description: >
+  Use when working on AI-powered Chrome extensions, especially Chrome built-in AI,
+  Modern Web Guidance, Chrome DevTools MCP setup for extension debugging, and
+  Chrome Web Store AI extension readiness.
+---
+
+# Chrome AI
+
+Use this skill when working on AI-powered Chrome extensions, including client-side
+AI, built-in AI APIs, Gemini-backed extension features, Chrome DevTools MCP setup,
+or Chrome Web Store readiness for AI extension projects.
+
+## When To Use
+
+Use this skill when you need to:
+
+- understand Chrome extension AI features, APIs, and workflows
+- find concrete examples before implementing or debugging an AI extension
+- set up Chrome DevTools MCP for extension testing
+- reason about Modern Web Guidance for extension-building agents
+- prepare AI extension metadata or permission notes for Chrome Web Store review
+
+## Quick Reference
+
+### Install Modern Web Guidance
+
+```bash
+npx modern-web-guidance@latest install --choose
+```
+
+Choose both `chrome-extensions` and `modern-web-guidance` when the installer asks
+which skills to install.
+
+### Chrome DevTools MCP Config
+
+```json
+{
+  "mcpServers": {
+    "chrome-devtools-mcp": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "chrome-devtools-mcp@latest",
+        "--categoryExtensions",
+        "--autoConnect"
+      ]
+    }
+  }
+}
+```
+
+Use `--categoryExtensions` for extension-specific DevTools capabilities and
+`--autoConnect` when testing against an existing Chrome profile, including cases
+that depend on Chrome built-in AI model state or signed-in browser state.
+
+### Claude MCP Equivalent
+
+```bash
+claude mcp add chrome-devtools --scope project -- npx chrome-devtools-mcp@latest --categoryExtensions --autoConnect
+```
+
+## Reference Files
+
+Read these bundled references when detailed context is needed:
+
+- `references/index.md` - documentation index from the imported archive
+- `references/other.md` - captured Chrome extension AI documentation
+
+## Source
+
+Installed from the project-local Chrome AI skill archive generated from Chrome
+for Developers documentation. Generated mirror folders and `output/` archives are
+ignored; `.agents/skills/chrome-ai` is the canonical checked-in skill copy.

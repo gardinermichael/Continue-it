@@ -12,6 +12,8 @@
     return;
   }
 
+  const LAUNCHER_ID = `continue-it-launcher-${provider.id}`;
+
   function getNodeText(node) {
     return shared.cleanMessageText(node?.innerText || node?.textContent || "");
   }
@@ -328,7 +330,7 @@
     modal.content.querySelector("#continue-it-close-debug").addEventListener("click", () => modal.close());
   }
 
-  async function captureConversation() {
+  async function captureConversation({ onProgress } = {}) {
     const scrollRoot = findScrollableContainer();
     const originalScrollTop = scrollRoot.scrollTop;
     const cache = new Map();
@@ -338,7 +340,27 @@
     let scanSteps = 0;
     const stepCounts = [];
 
-    ui.toast(`Scanning ${provider.name} conversation for full context...`, "default", 2000);
+    // How far we have to scroll back up is the only real measure of scan
+    // progress. Virtualized transcripts can grow while we walk up, so the
+    // fraction is a best effort — the progress UI clamps it monotonically.
+    const scanDistance = originalScrollTop;
+
+    function reportProgress(step) {
+      if (!onProgress) {
+        return;
+      }
+      const scrolled = scanDistance > 0
+        ? 1 - Math.min(1, Math.max(0, scrollRoot.scrollTop / scanDistance))
+        : Math.min(1, (step + 1) / 4);
+      // The cache re-keys the same message at each scroll offset it was seen at,
+      // so count distinct text instead — that is what survives deduplication and
+      // what the review modal will report.
+      const found = new Set([...cache.values()].map((candidate) => candidate.text)).size;
+      onProgress({
+        fraction: scrolled,
+        detail: found === 1 ? "1 message found so far" : `${found} messages found so far`
+      });
+    }
 
     for (let step = 0; step < 80; step += 1) {
       scanSteps = step + 1;
@@ -352,6 +374,7 @@
 
       const currentCount = cache.size;
       stepCounts.push(currentCount);
+      reportProgress(step);
       const reachedTop = scrollRoot.scrollTop <= 0;
       if (currentCount === previousCount) {
         stableSteps += 1;
@@ -657,25 +680,103 @@
     return error && typeof error.message === "string" && error.message.toLowerCase().includes("extension context invalidated");
   }
 
+  let exportInFlight = false;
+
+  function describeBuiltInStatus(status) {
+    if (!status || status.provider !== "builtin") {
+      return "";
+    }
+    if (status.state === "downloading") {
+      return status.percent === null || status.percent === undefined
+        ? "Downloading Chrome built-in AI model..."
+        : `Downloading Chrome built-in AI model: ${status.percent}%.`;
+    }
+    if (status.state === "checking") {
+      return "Checking Chrome built-in AI availability...";
+    }
+    if (status.state === "preparing") {
+      return "Preparing Chrome built-in AI model...";
+    }
+    if (status.state === "ready") {
+      return "Chrome built-in AI model is ready.";
+    }
+    if (status.state === "expired") {
+      return status.error || "Chrome built-in AI prewarm expired before it was used.";
+    }
+    if (status.state === "error") {
+      return `Chrome built-in AI is not ready: ${status.error || "unknown error"}`;
+    }
+    return "";
+  }
+
+  function attachBuiltInProgress(progress) {
+    function onBuiltInStatus(event) {
+      const detail = describeBuiltInStatus(event.detail);
+      if (detail) {
+        progress.setDetail(detail);
+      }
+    }
+
+    window.addEventListener("continueIt:builtinStatus", onBuiltInStatus);
+    return () => window.removeEventListener("continueIt:builtinStatus", onBuiltInStatus);
+  }
+
   async function exportConversation() {
+    if (exportInFlight) {
+      ui.toast("An export is already running on this tab.", "warning");
+      return;
+    }
+    exportInFlight = true;
+
+    const progress = ui.createProgress({
+      launcherId: LAUNCHER_ID,
+      busyLabel: "Exporting",
+      label: "Starting export"
+    });
+
     try {
-      return await _exportConversation();
+      return await _exportConversation(progress);
     } catch (error) {
       console.error("[Continue It] Export failed:", error);
       if (isContextInvalidated(error)) {
+        progress.fail("Extension reloaded", "Refresh this page (F5), then try again.");
         ui.toast("Extension was reloaded — please refresh this page (F5), then try again.", "error", 8000);
       } else {
+        progress.fail("Export failed", error?.message || String(error));
         ui.toast(`Export failed: ${error?.message || String(error)}`, "error", 8000);
       }
+    } finally {
+      exportInFlight = false;
     }
   }
 
-  async function _exportConversation() {
-    const { messages, diagnostics, rawCandidates } = await captureConversation();
+  async function _exportConversation(progress) {
+    const builtInPrewarm = window.ContinueItAI && typeof window.ContinueItAI.prewarmBuiltInModel === "function"
+      ? window.ContinueItAI.prewarmBuiltInModel()
+      : null;
+
+    progress.phase({
+      label: `Scanning ${provider.name} conversation`,
+      detail: "Scrolling back for the full transcript…",
+      from: 0,
+      to: 0.5
+    });
+
+    const { messages, diagnostics, rawCandidates } = await captureConversation({
+      onProgress: ({ fraction, detail }) => progress.set(fraction, detail)
+    });
     if (!messages.length) {
+      progress.fail("No messages found", `Nothing to export from this ${provider.name} page.`);
       ui.toast(`No ${provider.name} messages found on this page.`, "error");
       return;
     }
+
+    progress.phase({
+      label: "Building handoff",
+      detail: `${messages.length} messages captured.`,
+      from: 0.5,
+      to: 0.58
+    });
 
     const summaryMode = await shared.getSummaryMode();
     const handoff = shared.buildHandoff({
@@ -696,23 +797,65 @@
       const aiSettings = await window.ContinueItAI.getSettings();
       const modes = window.ContinueItAI.AI_MODES;
       const usingAI = aiSettings.mode !== modes.none;
-      if (usingAI) {
-        ui.toast(aiSettings.mode === modes.server ? "Contacting Server AI..." : "Generating summary with your API key...", "default", 2500);
+      if (aiSettings.mode === modes.builtin && builtInPrewarm) {
+        builtInPrewarm.then((result) => {
+          if (result && !result.ok && result.error) {
+            console.warn(`[Continue It] Chrome built-in AI prewarm failed: ${result.error}`);
+          }
+        });
       }
-      const aiResult = await window.ContinueItAI.summarizeConversation({
-        source: provider.name,
-        messages: handoff.messages,
-        mode: summaryMode,
-        shared
-      });
+      if (usingAI) {
+        const phaseLabel = aiSettings.mode === modes.server
+          ? "Contacting Server AI"
+          : aiSettings.mode === modes.builtin
+            ? "Summarizing with Chrome built-in AI"
+            : "Summarizing with your API key";
+        // The request length is unknowable, so this phase creeps toward its end
+        // and shows elapsed time — the bar must never look parked.
+        progress.phase({
+          label: phaseLabel,
+          detail: "Waiting for the model to respond…",
+          from: 0.58,
+          to: 0.94,
+          creep: true,
+          slowHintAfter: 12000,
+          slowHint: "Still waiting on the model. Long conversations can take a minute or more."
+        });
+      } else {
+        progress.phase({ label: "Summarizing locally", from: 0.58, to: 0.94 });
+      }
+      const detachBuiltInProgress = aiSettings.mode === modes.builtin ? attachBuiltInProgress(progress) : null;
+      if (detachBuiltInProgress && typeof window.ContinueItAI.getBuiltInStatus === "function") {
+        const detail = describeBuiltInStatus(await window.ContinueItAI.getBuiltInStatus());
+        if (detail) {
+          progress.setDetail(detail);
+        }
+      }
+      let aiResult;
+      try {
+        aiResult = await window.ContinueItAI.summarizeConversation({
+          source: provider.name,
+          messages: handoff.messages,
+          mode: summaryMode,
+          shared
+        });
+      } finally {
+        if (detachBuiltInProgress) {
+          detachBuiltInProgress();
+        }
+      }
       if (aiResult.summary) {
         handoff.summary = aiResult.summary;
+        (aiResult.warnings || []).forEach((warning) => handoff.warnings.push(warning));
         if (aiSettings.mode === modes.server) {
           summarySource = "Server AI (backend API)";
           const left = aiResult.quota && Number.isFinite(aiResult.quota.remaining)
             ? ` ${aiResult.quota.remaining}/${aiResult.quota.limit} free exports left today.`
             : "";
           ui.toast(`✓ Summary generated by the Server API.${left}`, "success", 5000);
+        } else if (aiSettings.mode === modes.builtin) {
+          summarySource = "Chrome built-in AI";
+          ui.toast("✓ Summary generated by Chrome built-in AI.", "success", 4000);
         } else {
           summarySource = "Your own API key";
           ui.toast("✓ Summary generated by your own API key.", "success", 4000);
@@ -723,14 +866,16 @@
         handoff.warnings.push(`AI summarization failed, local summary used instead: ${aiResult.error}`);
         ui.toast(`⚠ AI failed — used the local (DOM) summary instead. ${aiResult.error}`, "warning", 7000);
       } else if (!usingAI) {
-        ui.toast("Summary generated locally (no AI). Enable Server AI or add your key for smarter summaries.", "default", 4500);
+        ui.toast("Summary generated locally (no AI). Enable Chrome built-in AI, Server AI, or add your key for smarter summaries.", "default", 4500);
       }
     }
 
     handoff.summarySource = summarySource;
 
+    progress.phase({ label: "Preparing review", detail: "", from: 0.94, to: 1 });
     await shared.resetChunkCursor(handoff.id);
     await openExportModal(handoff, { rawCandidates, diagnostics, messageCount: messages.length });
+    progress.succeed("Export ready");
   }
 
   async function importConversation() {
@@ -756,8 +901,11 @@
   }
 
   function boot() {
+    if (window.ContinueItAI && typeof window.ContinueItAI.getSettings === "function") {
+      window.ContinueItAI.getSettings();
+    }
     ui.mountLauncher({
-      id: `continue-it-launcher-${provider.id}`,
+      id: LAUNCHER_ID,
       label: "Continue It",
       getAnchor: getLauncherAnchor,
       actions: [

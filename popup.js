@@ -11,7 +11,9 @@ const chunkProgressEl = document.getElementById("chunkProgress");
 const summaryModeEl = document.getElementById("summaryMode");
 
 const aiModeRadios = Array.from(document.querySelectorAll('input[name="aiMode"]'));
+const builtinSettingsEl = document.getElementById("builtinSettings");
 const serverSettingsEl = document.getElementById("serverSettings");
+const serverUrlEl = document.getElementById("serverUrl");
 const quotaInfoEl = document.getElementById("quotaInfo");
 const byokSettingsEl = document.getElementById("byokSettings");
 const providerSelectEl = document.getElementById("providerSelect");
@@ -21,6 +23,7 @@ const byokBaseUrlEl = document.getElementById("byokBaseUrl");
 const byokModelEl = document.getElementById("byokModel");
 const byokApiKeyEl = document.getElementById("byokApiKey");
 const testStatusEl = document.getElementById("testStatus");
+const testBuiltInButton = document.getElementById("testBuiltIn");
 const testAiButton = document.getElementById("testAi");
 const saveAiButton = document.getElementById("saveAi");
 
@@ -56,19 +59,78 @@ function selectedAiMode() {
 
 function updateModeVisibility() {
   const mode = selectedAiMode();
+  builtinSettingsEl.hidden = mode !== ai.AI_MODES.builtin;
   serverSettingsEl.hidden = mode !== ai.AI_MODES.server;
   byokSettingsEl.hidden = mode !== ai.AI_MODES.byok;
 }
 
 function renderQuota(quota) {
   if (!quota) {
-    quotaInfoEl.textContent = "You get 5 free server summaries every 24 hours.";
+    quotaInfoEl.textContent = "Use a hosted backend or run your own local backend with a provider key in .env.";
     quotaInfoEl.className = "hint";
     return;
   }
   const resetText = quota.resetAt ? ` Resets ${new Date(quota.resetAt).toLocaleString()}.` : "";
   quotaInfoEl.textContent = `${quota.remaining} of ${quota.limit} free server exports left.${resetText}`;
   quotaInfoEl.className = quota.remaining <= 0 ? "hint quota-empty" : quota.remaining <= 1 ? "hint quota-low" : "hint";
+}
+
+function describeBuiltInStatus(status) {
+  if (!status || status.provider !== ai.AI_MODES.builtin) {
+    return null;
+  }
+  if (status.state === "downloading") {
+    return status.percent === null || status.percent === undefined
+      ? "Downloading Chrome built-in AI model..."
+      : `Downloading Chrome built-in AI model: ${status.percent}%.`;
+  }
+  if (status.state === "checking") {
+    return "Checking Chrome built-in AI availability...";
+  }
+  if (status.state === "preparing") {
+    return "Preparing Chrome built-in AI model...";
+  }
+  if (status.state === "ready") {
+    return "Chrome built-in AI is ready.";
+  }
+  if (status.state === "expired") {
+    return status.error || "Chrome built-in AI prewarm expired before it was used.";
+  }
+  if (status.state === "error") {
+    return `Chrome built-in AI is not ready: ${status.error || "unknown error"}`;
+  }
+  return null;
+}
+
+function statusClassForBuiltInStatus(status) {
+  if (!status) {
+    return "";
+  }
+  if (status.state === "ready") {
+    return "ok";
+  }
+  if (status.state === "error" || status.state === "expired") {
+    return "error";
+  }
+  return "pending";
+}
+
+function renderBuiltInStatus(status) {
+  if (selectedAiMode() !== ai.AI_MODES.builtin) {
+    return;
+  }
+  const message = describeBuiltInStatus(status);
+  if (!message) {
+    return;
+  }
+  const state = statusClassForBuiltInStatus(status);
+  if (state === "pending") {
+    testStatusEl.textContent = message;
+    testStatusEl.className = "test-status pending";
+    testStatusEl.hidden = false;
+    return;
+  }
+  setTestStatus(message, state);
 }
 
 function populateProviders(selectedId) {
@@ -105,6 +167,7 @@ async function loadAiSettings() {
   aiModeRadios.forEach((radio) => {
     radio.checked = radio.value === settings.mode;
   });
+  serverUrlEl.value = settings.serverUrl || ai.DEFAULT_SERVER_URL;
   populateProviders(settings.byok.provider);
   byokBaseUrlEl.value = settings.byok.baseUrl || "";
   byokModelEl.value = settings.byok.model || "";
@@ -116,6 +179,9 @@ async function loadAiSettings() {
   }
   updateModeVisibility();
   renderQuota(settings.mode === ai.AI_MODES.server ? settings.lastQuota : null);
+  if (settings.mode === ai.AI_MODES.builtin) {
+    renderBuiltInStatus(await ai.getBuiltInStatus());
+  }
 }
 
 async function renderPopup() {
@@ -178,6 +244,8 @@ aiModeRadios.forEach((radio) => {
     await ai.saveSettings({ mode: selectedAiMode() });
     if (selectedAiMode() === ai.AI_MODES.none) {
       setStatus("Using local summaries (no AI).");
+    } else if (selectedAiMode() === ai.AI_MODES.builtin) {
+      setStatus("Using Chrome built-in AI when available on this device.");
     } else {
       setStatus('Fill in the details below, then click "Save AI settings".');
     }
@@ -209,12 +277,34 @@ saveAiButton.addEventListener("click", async () => {
     return;
   }
 
-  if (mode === ai.AI_MODES.server) {
+  if (mode === ai.AI_MODES.builtin) {
     await ai.saveSettings({ mode });
-    const granted = await ai.requestOriginPermission(ai.DEFAULT_SERVER_URL);
+    showSaveFeedback("✓ Saved — preparing Chrome built-in AI.");
+    startTestStatus("Preparing Chrome built-in AI");
+    const result = await ai.prewarmBuiltInModel();
+    stopTestTicker();
+    setTestStatus(
+      result && result.ok
+        ? "Chrome built-in AI is ready."
+        : `Chrome built-in AI is not ready: ${result ? result.error : "no response"}`,
+      result && result.ok ? "ok" : "error"
+    );
+    showSaveFeedback(
+      result && result.ok
+        ? "✓ Saved — Chrome built-in AI is ready."
+        : `⚠ Saved, but Chrome built-in AI is not ready: ${result ? result.error : "no response"}`,
+      result && result.ok ? "success" : "warning"
+    );
+    return;
+  }
+
+  if (mode === ai.AI_MODES.server) {
+    const serverUrl = serverUrlEl.value.trim() || ai.DEFAULT_SERVER_URL;
+    await ai.saveSettings({ mode, serverUrl });
+    const granted = await ai.requestOriginPermission(serverUrl);
     showSaveFeedback(
       granted
-        ? "✓ Saved — Server AI enabled. 5 free exports every 24 hours."
+        ? "✓ Saved — Server AI enabled for the configured backend."
         : "⚠ Saved, but server permission not granted — allow it to use AI summaries.",
       granted ? "success" : "warning"
     );
@@ -239,33 +329,89 @@ saveAiButton.addEventListener("click", async () => {
   );
 });
 
+let testTicker = null;
+
+function stopTestTicker() {
+  if (testTicker) {
+    clearInterval(testTicker);
+    testTicker = null;
+  }
+  testBuiltInButton.disabled = false;
+  testAiButton.disabled = false;
+}
+
 function setTestStatus(message, state) {
+  stopTestTicker();
   testStatusEl.textContent = message;
   testStatusEl.className = "test-status" + (state ? ` ${state}` : "");
   testStatusEl.hidden = !message;
 }
 
-testAiButton.addEventListener("click", async () => {
-  const mode = selectedAiMode();
-  if (mode === ai.AI_MODES.byok) {
-    const baseUrl = byokBaseUrlEl.value.trim();
-    if (!baseUrl || !byokModelEl.value.trim() || !byokApiKeyEl.value.trim()) {
-      setTestStatus("Enter a base URL, model, and API key first.", "error");
-      return;
-    }
-    await persistByok();
-    const granted = await ai.requestOriginPermission(baseUrl);
-    if (!granted) {
-      setTestStatus(`Access to ${baseUrl} was not granted. Allow it to test.`, "error");
-      return;
-    }
+// A model round trip can take a while. Animated ellipses plus an elapsed second
+// counter are what tell the user the popup is waiting rather than wedged.
+function startTestStatus(message) {
+  stopTestTicker();
+  const startedAt = Date.now();
+  testBuiltInButton.disabled = true;
+  testAiButton.disabled = true;
+  testStatusEl.className = "test-status pending";
+  testStatusEl.hidden = false;
+
+  function paint() {
+    const elapsedMs = Date.now() - startedAt;
+    const dots = ".".repeat(1 + (Math.floor(elapsedMs / 400) % 3));
+    const seconds = Math.round(elapsedMs / 1000);
+    testStatusEl.textContent = `${message}${dots}${seconds >= 2 ? ` (${seconds}s)` : ""}`;
   }
-  setTestStatus("Testing connection…", "");
-  const result = await ai.testConnection();
-  if (result && result.ok) {
-    setTestStatus("Connection works. AI summaries are ready.", "ok");
-  } else {
-    setTestStatus(`Test failed: ${result ? result.error : "no response"}`, "error");
+
+  paint();
+  testTicker = setInterval(paint, 400);
+}
+
+testBuiltInButton.addEventListener("click", async () => {
+  try {
+    await ai.saveSettings({ mode: ai.AI_MODES.builtin });
+    startTestStatus("Testing Chrome built-in AI");
+    const result = await ai.testConnection();
+    if (result && result.ok) {
+      setTestStatus("Chrome built-in AI is ready.", "ok");
+    } else {
+      setTestStatus(`Test failed: ${result ? result.error : "no response"}`, "error");
+    }
+  } catch (error) {
+    setTestStatus(`Test failed: ${error?.message || String(error)}`, "error");
+  }
+});
+
+window.addEventListener("continueIt:builtinStatus", (event) => {
+  renderBuiltInStatus(event.detail || null);
+});
+
+testAiButton.addEventListener("click", async () => {
+  try {
+    const mode = selectedAiMode();
+    if (mode === ai.AI_MODES.byok) {
+      const baseUrl = byokBaseUrlEl.value.trim();
+      if (!baseUrl || !byokModelEl.value.trim() || !byokApiKeyEl.value.trim()) {
+        setTestStatus("Enter a base URL, model, and API key first.", "error");
+        return;
+      }
+      await persistByok();
+      const granted = await ai.requestOriginPermission(baseUrl);
+      if (!granted) {
+        setTestStatus(`Access to ${baseUrl} was not granted. Allow it to test.`, "error");
+        return;
+      }
+    }
+    startTestStatus("Testing connection");
+    const result = await ai.testConnection();
+    if (result && result.ok) {
+      setTestStatus("Connection works. AI summaries are ready.", "ok");
+    } else {
+      setTestStatus(`Test failed: ${result ? result.error : "no response"}`, "error");
+    }
+  } catch (error) {
+    setTestStatus(`Test failed: ${error?.message || String(error)}`, "error");
   }
 });
 

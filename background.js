@@ -10,14 +10,54 @@ const AI_STORAGE_KEYS = {
   serverUrl: "continueIt.ai.serverUrl",
   byokBaseUrl: "continueIt.ai.byokBaseUrl",
   byokModel: "continueIt.ai.byokModel",
-  byokApiKey: "continueIt.ai.byokApiKey"
+  byokApiKey: "continueIt.ai.byokApiKey",
+  chromeBuiltInStatus: "continueIt.ai.builtinStatus"
 };
 const DEFAULT_SERVER_URL = "http://localhost:8787";
+const CHROME_BUILTIN_MODE = "builtin";
+const CHROME_BUILTIN_PREWARM_TTL_MS = 2 * 60 * 1000;
+const SUMMARY_SYSTEM_PROMPT =
+  "You are a context-transfer agent. Your job is to write a comprehensive handoff document that captures the COMPLETE context of a conversation so a different AI can continue it seamlessly — with zero information loss. Do NOT produce a brief summary. Write as much as needed to preserve all meaningful context. Use plain text only (no markdown headers, no code fences). Write in clear, complete sentences. Preserve specifics — exact names, exact values, exact error messages, exact file names — never replace them with vague references. A reader must be able to pick up the conversation mid-sentence without asking any clarifying questions.";
+const CHROME_BUILTIN_LANGUAGE_OPTIONS = {
+  expectedInputs: [{ type: "text" }],
+  expectedOutputs: [{ type: "text", languages: ["en"] }]
+};
+
+let chromeBuiltInPrewarmPromise = null;
+let chromeBuiltInPrewarmExpiryTimer = null;
 
 function getStorage(keys) {
   return new Promise((resolve) => {
     chrome.storage.local.get(keys, (result) => resolve(result || {}));
   });
+}
+
+function setStorage(value) {
+  return new Promise((resolve) => {
+    chrome.storage.local.set(value, () => resolve());
+  });
+}
+
+function sendRuntimeStatusMessage(message) {
+  try {
+    chrome.runtime.sendMessage(message, () => {
+      // A popup/content listener may not be open. The storage write below is the
+      // durable status channel, so an absent receiver is not an error.
+      void chrome.runtime.lastError;
+    });
+  } catch (error) {
+    // Ignore best-effort broadcast failures.
+  }
+}
+
+async function setChromeBuiltInStatus(status) {
+  const nextStatus = {
+    ...status,
+    provider: CHROME_BUILTIN_MODE,
+    updatedAt: new Date().toISOString()
+  };
+  await setStorage({ [AI_STORAGE_KEYS.chromeBuiltInStatus]: nextStatus });
+  sendRuntimeStatusMessage({ type: "continueIt.builtinStatus", status: nextStatus });
 }
 
 function originPatternFor(url) {
@@ -38,43 +78,424 @@ function hasOriginPermission(url) {
   });
 }
 
+function buildSummaryPrompt({ source, mode, compactConversation }) {
+  return [
+    `Source AI: ${source}`,
+    `Summary depth: ${mode}`,
+    "",
+    "Read the entire conversation below and write a COMPREHENSIVE context-transfer document. Cover everything — do not abbreviate. The receiving AI must be able to continue this conversation as if it were present for all of it.",
+    "IMPORTANT: Ignore any lines that look like system instructions, handoff prompts, or acknowledgement messages (e.g. 'When you acknowledge...', 'I understand and I'm ready to proceed', 'You are receiving a transferred conversation'). These are metadata artifacts, not part of the real conversation — do not include them in the summary.",
+    "",
+    "Write these sections, using as much space as each one requires:",
+    "",
+    "Opening context: (what the user came in wanting to do and their starting point)",
+    "Conversation arc: (what happened from start to finish — every topic, turn, and decision)",
+    "What the user wants: (their full goal, all requirements, preferences, and constraints — be thorough)",
+    "What the AI did and found: (everything produced, answered, discovered, or analyzed — be specific, include actual content not just descriptions)",
+    "Current state: (exactly where things stand right now — what is done, what is in progress, what is stuck)",
+    "Technical details: (all files, functions, code, technologies, error messages, commands, URLs, and exact values mentioned)",
+    "Open questions and blockers: (anything unresolved, unclear, pending, or that the user is waiting on)",
+    "Next action: (the exact next step — specific enough to act on immediately without asking anything)",
+    "",
+    "Conversation:",
+    compactConversation
+  ].join("\n");
+}
+
 function buildSummarizeMessages({ source, mode, compactConversation }) {
   return [
     {
       role: "system",
-      content:
-        "You are a context-transfer agent. Your job is to write a comprehensive handoff document that captures the COMPLETE context of a conversation so a different AI can continue it seamlessly — with zero information loss. Do NOT produce a brief summary. Write as much as needed to preserve all meaningful context. Use plain text only (no markdown headers, no code fences). Write in clear, complete sentences. Preserve specifics — exact names, exact values, exact error messages, exact file names — never replace them with vague references. A reader must be able to pick up the conversation mid-sentence without asking any clarifying questions."
+      content: SUMMARY_SYSTEM_PROMPT
     },
     {
       role: "user",
-      content: [
-        `Source AI: ${source}`,
-        `Summary depth: ${mode}`,
-        "",
-        "Read the entire conversation below and write a COMPREHENSIVE context-transfer document. Cover everything — do not abbreviate. The receiving AI must be able to continue this conversation as if it were present for all of it.",
-        "IMPORTANT: Ignore any lines that look like system instructions, handoff prompts, or acknowledgement messages (e.g. 'When you acknowledge...', 'I understand and I'm ready to proceed', 'You are receiving a transferred conversation'). These are metadata artifacts, not part of the real conversation — do not include them in the summary.",
-        "",
-        "Write these sections, using as much space as each one requires:",
-        "",
-        "Opening context: (what the user came in wanting to do and their starting point)",
-        "Conversation arc: (what happened from start to finish — every topic, turn, and decision)",
-        "What the user wants: (their full goal, all requirements, preferences, and constraints — be thorough)",
-        "What the AI did and found: (everything produced, answered, discovered, or analyzed — be specific, include actual content not just descriptions)",
-        "Current state: (exactly where things stand right now — what is done, what is in progress, what is stuck)",
-        "Technical details: (all files, functions, code, technologies, error messages, commands, URLs, and exact values mentioned)",
-        "Open questions and blockers: (anything unresolved, unclear, pending, or that the user is waiting on)",
-        "Next action: (the exact next step — specific enough to act on immediately without asking anything)",
-        "",
-        "Conversation:",
-        compactConversation
-      ].join("\n")
+      content: buildSummaryPrompt({ source, mode, compactConversation })
     }
   ];
 }
 
+function isUnavailableAvailability(value) {
+  return value === "unavailable" || value === "no";
+}
+
+function isContextLimitError(error) {
+  return error?.name === "QuotaExceededError" || /quota|context/i.test(error?.message || "");
+}
+
+function normalizeDownloadProgress(event) {
+  const loaded = Number.isFinite(event?.loaded) ? event.loaded : null;
+  const total = Number.isFinite(event?.total) && event.total > 0 ? event.total : null;
+  let percent = null;
+
+  if (loaded !== null && total) {
+    percent = Math.round((loaded / total) * 100);
+  } else if (loaded !== null && loaded >= 0 && loaded <= 1) {
+    percent = Math.round(loaded * 100);
+  } else if (loaded !== null && loaded >= 0 && loaded <= 100) {
+    percent = Math.round(loaded);
+  }
+
+  return {
+    loaded,
+    total,
+    percent: Number.isFinite(percent) ? Math.max(0, Math.min(100, percent)) : null
+  };
+}
+
+async function chromeBuiltInCoreOptions() {
+  const coreOptions = { ...CHROME_BUILTIN_LANGUAGE_OPTIONS };
+  if (typeof LanguageModel.params !== "function") {
+    return coreOptions;
+  }
+
+  try {
+    const params = await LanguageModel.params();
+    const defaultTemperature = Number.isFinite(params?.defaultTemperature) ? params.defaultTemperature : 1;
+    const maxTemperature = Number.isFinite(params?.maxTemperature) ? params.maxTemperature : defaultTemperature;
+    const topK = Number.isFinite(params?.defaultTopK) ? params.defaultTopK : undefined;
+    const temperature = Math.min(defaultTemperature, maxTemperature, 0.7);
+
+    if (Number.isFinite(topK) && Number.isFinite(temperature)) {
+      return { ...coreOptions, topK, temperature };
+    }
+  } catch (error) {
+    console.warn("[Continue It] Could not read Chrome built-in AI model params.", error);
+  }
+
+  return coreOptions;
+}
+
+function chromeBuiltInCreateOptions(coreOptions) {
+  return {
+    ...coreOptions,
+    initialPrompts: [{ role: "system", content: SUMMARY_SYSTEM_PROMPT }],
+    monitor(monitor) {
+      monitor.addEventListener("downloadprogress", (event) => {
+        const progress = normalizeDownloadProgress(event);
+        const percentText = progress.percent === null ? "in progress" : `${progress.percent}%`;
+        console.log(`[Continue It] Chrome built-in AI model download: ${percentText}`);
+        setChromeBuiltInStatus({
+          state: "downloading",
+          loaded: progress.loaded,
+          total: progress.total,
+          percent: progress.percent
+        });
+      });
+    }
+  };
+}
+
+async function createChromeBuiltInSession() {
+  if (!globalThis.LanguageModel) {
+    await setChromeBuiltInStatus({
+      state: "error",
+      availability: "unavailable",
+      error: "Chrome built-in AI is not available in this browser."
+    });
+    return {
+      ok: false,
+      session: null,
+      availability: "unavailable",
+      error: "Chrome built-in AI is not available in this browser. Use Chrome 138+ on a supported desktop device, or choose Server AI / Custom API key."
+    };
+  }
+
+  let availability = "unknown";
+  let coreOptions = CHROME_BUILTIN_LANGUAGE_OPTIONS;
+  try {
+    await setChromeBuiltInStatus({ state: "checking", availability });
+    coreOptions = await chromeBuiltInCoreOptions();
+    availability = await LanguageModel.availability(coreOptions);
+  } catch (error) {
+    await setChromeBuiltInStatus({
+      state: "error",
+      availability,
+      error: `Chrome built-in AI availability check failed: ${error?.message || String(error)}`
+    });
+    return {
+      ok: false,
+      session: null,
+      availability,
+      error: `Chrome built-in AI availability check failed: ${error?.message || String(error)}`
+    };
+  }
+
+  if (isUnavailableAvailability(availability)) {
+    await setChromeBuiltInStatus({
+      state: "error",
+      availability,
+      error: "Chrome built-in AI is not available on this device."
+    });
+    return {
+      ok: false,
+      session: null,
+      availability,
+      error: "Chrome built-in AI is not available on this device. Use Server AI or Custom API key instead."
+    };
+  }
+
+  try {
+    await setChromeBuiltInStatus({ state: "preparing", availability });
+    const session = await LanguageModel.create(chromeBuiltInCreateOptions(coreOptions));
+    await setChromeBuiltInStatus({ state: "ready", availability });
+    return {
+      ok: true,
+      session,
+      availability,
+      error: null
+    };
+  } catch (error) {
+    await setChromeBuiltInStatus({
+      state: "error",
+      availability,
+      error: `Chrome built-in AI failed: ${error?.message || String(error)}`
+    });
+    return {
+      ok: false,
+      session: null,
+      availability,
+      error: `Chrome built-in AI failed: ${error?.message || String(error)}`
+    };
+  }
+}
+
+function clearChromeBuiltInPrewarmExpiry() {
+  if (chromeBuiltInPrewarmExpiryTimer) {
+    clearTimeout(chromeBuiltInPrewarmExpiryTimer);
+    chromeBuiltInPrewarmExpiryTimer = null;
+  }
+}
+
+function destroyChromeBuiltInSessionResult(result) {
+  try {
+    result?.session?.destroy?.();
+  } catch (error) {
+    console.warn("[Continue It] Could not destroy expired Chrome built-in AI session.", error);
+  }
+}
+
+function scheduleChromeBuiltInPrewarmExpiry(resultPromise) {
+  clearChromeBuiltInPrewarmExpiry();
+  chromeBuiltInPrewarmExpiryTimer = setTimeout(() => {
+    if (chromeBuiltInPrewarmPromise !== resultPromise) {
+      return;
+    }
+    chromeBuiltInPrewarmPromise = null;
+    chromeBuiltInPrewarmExpiryTimer = null;
+    resultPromise
+      .then(async (result) => {
+        if (result?.ok && result.session) {
+          destroyChromeBuiltInSessionResult(result);
+          await setChromeBuiltInStatus({
+            state: "expired",
+            availability: result.availability,
+            error: "Chrome built-in AI prewarm expired before it was used."
+          });
+        }
+      })
+      .catch(() => {});
+  }, CHROME_BUILTIN_PREWARM_TTL_MS);
+}
+
+async function prewarmChromeBuiltIn() {
+  if (!chromeBuiltInPrewarmPromise) {
+    chromeBuiltInPrewarmPromise = createChromeBuiltInSession();
+    scheduleChromeBuiltInPrewarmExpiry(chromeBuiltInPrewarmPromise);
+  }
+
+  const resultPromise = chromeBuiltInPrewarmPromise;
+  const result = await resultPromise;
+  if (!result.ok) {
+    if (chromeBuiltInPrewarmPromise === resultPromise) {
+      chromeBuiltInPrewarmPromise = null;
+      clearChromeBuiltInPrewarmExpiry();
+    }
+  }
+
+  return {
+    ok: result.ok,
+    availability: result.availability,
+    error: result.error
+  };
+}
+
+async function takeChromeBuiltInSession() {
+  if (chromeBuiltInPrewarmPromise) {
+    const resultPromise = chromeBuiltInPrewarmPromise;
+    chromeBuiltInPrewarmPromise = null;
+    clearChromeBuiltInPrewarmExpiry();
+    const result = await resultPromise;
+    return result;
+  }
+  return createChromeBuiltInSession();
+}
+
+function finitePositiveNumber(value) {
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function normalizeContextUsage(measured) {
+  if (typeof measured === "number") {
+    return finitePositiveNumber(measured);
+  }
+  if (!measured || typeof measured !== "object") {
+    return null;
+  }
+  return finitePositiveNumber(measured.inputUsage)
+    || finitePositiveNumber(measured.usage)
+    || finitePositiveNumber(measured.tokens)
+    || finitePositiveNumber(measured.total);
+}
+
+async function measurePromptContextUsage(session, prompt) {
+  if (session && typeof session.measureContextUsage === "function") {
+    return normalizeContextUsage(await session.measureContextUsage(prompt));
+  }
+  if (session && typeof session.measureInputUsage === "function") {
+    return normalizeContextUsage(await session.measureInputUsage(prompt));
+  }
+  if (session && typeof session.countPromptTokens === "function") {
+    return normalizeContextUsage(await session.countPromptTokens(prompt));
+  }
+  return null;
+}
+
+function getAvailablePromptQuota(session) {
+  const contextWindow = finitePositiveNumber(session?.contextWindow);
+  if (contextWindow) {
+    const contextUsage = finitePositiveNumber(session?.contextUsage) || 0;
+    return Math.max(1, contextWindow - contextUsage);
+  }
+
+  return finitePositiveNumber(session?.inputQuota);
+}
+
+function truncateConversationExcerpt(text, maxChars) {
+  if (!text || text.length <= maxChars) {
+    return text || "";
+  }
+
+  const marker = "\n\n[...conversation excerpt truncated to fit Chrome built-in AI context window...]\n\n";
+  if (maxChars <= marker.length + 20) {
+    return text.slice(0, Math.max(0, maxChars));
+  }
+
+  const remaining = maxChars - marker.length;
+  const headLength = Math.floor(remaining * 0.45);
+  const tailLength = remaining - headLength;
+  return `${text.slice(0, headLength)}${marker}${text.slice(-tailLength)}`;
+}
+
+async function buildPromptWithinSessionQuota(session, payload) {
+  const prompt = buildSummaryPrompt(payload);
+  const quota = getAvailablePromptQuota(session);
+  const usage = await measurePromptContextUsage(session, prompt);
+  if (!quota || !usage) {
+    return { prompt, quota, usage, truncated: false };
+  }
+
+  const targetQuota = Math.max(1, quota - Math.max(64, Math.ceil(quota * 0.08)));
+  if (usage <= targetQuota) {
+    return { prompt, quota, usage, truncated: false };
+  }
+
+  const compactConversation = payload.compactConversation || "";
+  let low = 0;
+  let high = compactConversation.length;
+  let bestPrompt = buildSummaryPrompt({ ...payload, compactConversation: "" });
+  let bestUsage = await measurePromptContextUsage(session, bestPrompt);
+
+  while (low <= high) {
+    const mid = Math.floor((low + high) / 2);
+    const candidateConversation = truncateConversationExcerpt(compactConversation, mid);
+    const candidatePrompt = buildSummaryPrompt({ ...payload, compactConversation: candidateConversation });
+    const candidateUsage = await measurePromptContextUsage(session, candidatePrompt);
+
+    if (candidateUsage && candidateUsage <= targetQuota) {
+      bestPrompt = candidatePrompt;
+      bestUsage = candidateUsage;
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
+  }
+
+  if (bestUsage && bestUsage > quota) {
+    throw new Error(`Chrome built-in AI prompt exceeds the available context window (${bestUsage}/${quota}).`);
+  }
+
+  return { prompt: bestPrompt, quota, usage: bestUsage, truncated: true };
+}
+
+async function collectChromeBuiltInPrompt(session, prompt) {
+  if (typeof session.promptStreaming !== "function") {
+    return session.prompt(prompt);
+  }
+
+  let response = "";
+  const stream = session.promptStreaming(prompt);
+  for await (const chunk of stream) {
+    response += chunk;
+  }
+  return response;
+}
+
+async function summarizeViaChromeBuiltIn(payload) {
+  let session = null;
+  let overflowed = false;
+  try {
+    const sessionResult = await takeChromeBuiltInSession();
+    if (!sessionResult.ok) {
+      return { ok: false, used: true, summary: null, error: sessionResult.error };
+    }
+
+    session = sessionResult.session;
+    if (typeof session.addEventListener === "function") {
+      const onOverflow = () => {
+        overflowed = true;
+        console.warn("[Continue It] Chrome built-in AI context overflowed; some prompt context may be dropped.");
+      };
+      session.addEventListener("quotaoverflow", onOverflow);
+      session.addEventListener("contextoverflow", onOverflow);
+    }
+
+    const fitted = await buildPromptWithinSessionQuota(session, payload);
+    const summary = (await collectChromeBuiltInPrompt(session, fitted.prompt)).trim();
+    if (!summary) {
+      return { ok: false, used: true, summary: null, error: "Chrome built-in AI returned an empty summary." };
+    }
+
+    const warnings = [];
+    if (fitted.truncated) {
+      warnings.push(`Chrome built-in AI prompt was truncated to fit the available context window (${fitted.usage || "unknown"}/${fitted.quota || "unknown"}).`);
+    }
+    if (overflowed) {
+      warnings.push("Chrome built-in AI reported context overflow while generating the summary.");
+    }
+
+    return { ok: true, used: true, summary, quota: null, warnings, error: null };
+  } catch (error) {
+    if (isContextLimitError(error)) {
+      return {
+        ok: false,
+        used: true,
+        summary: null,
+        error: "Chrome built-in AI could not fit the full conversation in its context window. Use Server AI or Custom API key for this larger handoff."
+      };
+    }
+    return { ok: false, used: true, summary: null, error: `Chrome built-in AI failed: ${error?.message || String(error)}` };
+  } finally {
+    if (session) {
+      session.destroy();
+    }
+  }
+}
+
 // --- Shared backend (sarvam AI) 
 async function summarizeViaServer(payload) {
-  const serverUrl = DEFAULT_SERVER_URL.replace(/\/$/, "");
+  const stored = await getStorage([AI_STORAGE_KEYS.serverUrl]);
+  const serverUrl = (stored[AI_STORAGE_KEYS.serverUrl] || DEFAULT_SERVER_URL).replace(/\/$/, "");
   const url = `${serverUrl}/api/summarize`;
 
   if (!(await hasOriginPermission(serverUrl))) {
@@ -193,6 +614,9 @@ async function summarizeViaByok(payload) {
 }
 
 async function handleSummarize(payload) {
+  if (payload.aiMode === CHROME_BUILTIN_MODE) {
+    return summarizeViaChromeBuiltIn(payload);
+  }
   if (payload.aiMode === "server") {
     return summarizeViaServer(payload);
   }
@@ -200,6 +624,10 @@ async function handleSummarize(payload) {
     return summarizeViaByok(payload);
   }
   return { ok: false, used: false, summary: null, error: "AI is disabled." };
+}
+
+async function handlePrewarmBuiltIn() {
+  return prewarmChromeBuiltIn();
 }
 
 // Minimal request used to validate that a provider/key/server actually works.
@@ -225,16 +653,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "continueIt.summarize") {
-    handleSummarize(message.payload || {})
-      .then((result) => sendResponse(result))
-      .catch((error) => sendResponse({ ok: false, used: true, summary: null, error: error?.message || "AI request failed." }));
+    (async () => {
+      sendResponse(await handleSummarize(message.payload || {}));
+    })().catch((error) => sendResponse({ ok: false, used: true, summary: null, error: error?.message || "AI request failed." }));
+    return true;
+  }
+
+  if (message.type === "continueIt.prewarmBuiltIn") {
+    (async () => {
+      sendResponse(await handlePrewarmBuiltIn());
+    })().catch((error) => sendResponse({ ok: false, error: error?.message || "Chrome built-in AI prewarm failed." }));
     return true;
   }
 
   if (message.type === "continueIt.test") {
-    handleTest(message.payload || {})
-      .then((result) => sendResponse(result))
-      .catch((error) => sendResponse({ ok: false, error: error?.message || "Test failed." }));
+    (async () => {
+      sendResponse(await handleTest(message.payload || {}));
+    })().catch((error) => sendResponse({ ok: false, error: error?.message || "Test failed." }));
     return true;
   }
 

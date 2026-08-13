@@ -61,11 +61,21 @@
         <p class="field-label">Choose how the export summary is generated.</p>
         <div class="radio-group">
           <label class="radio-option"><input type="radio" name="aiMode" value="none" /> <span><strong>No AI</strong> — local, free, private, works offline</span></label>
-          <label class="radio-option"><input type="radio" name="aiMode" value="server" /> <span><strong>Server AI</strong> — better, 5 free exports / 24h</span></label>
+          <label class="radio-option"><input type="radio" name="aiMode" value="builtin" /> <span><strong>Chrome built-in AI</strong> — on-device, no key</span></label>
+          <label class="radio-option"><input type="radio" name="aiMode" value="server" /> <span><strong>Server AI</strong> — use a configured backend</span></label>
           <label class="radio-option"><input type="radio" name="aiMode" value="byok" /> <span><strong>Custom API key</strong> — unlimited, free providers</span></label>
         </div>
 
+        <div id="builtinSettings" class="subpanel" hidden>
+          <p class="hint">Uses Chrome's built-in Gemini Nano model when it is available on this device. No API key or backend is used.</p>
+          <div class="inline-row">
+            <button id="testBuiltIn" type="button" class="secondary">Test Chrome AI</button>
+          </div>
+        </div>
+
         <div id="serverSettings" class="subpanel" hidden>
+          <label class="field-label" for="serverUrl">Server URL</label>
+          <input id="serverUrl" type="text" placeholder="http://localhost:8787" />
           <p id="quotaInfo" class="hint"></p>
         </div>
 
@@ -77,15 +87,15 @@
           <label class="field-label" for="byokBaseUrl">Base URL</label>
           <input id="byokBaseUrl" type="text" placeholder="https://openrouter.ai/api/v1" />
           <label class="field-label" for="byokModel">Model</label>
-          <input id="byokModel" type="text" placeholder="meta-llama/llama-3.3-70b-instruct:free" />
+          <input id="byokModel" type="text" placeholder="google/gemma-4-26b-a4b-it:free" />
           <label class="field-label" for="byokApiKey">API key</label>
           <input id="byokApiKey" type="password" placeholder="Paste your API key" autocomplete="off" />
-          <p id="testStatus" class="test-status" hidden></p>
           <div class="inline-row">
             <button id="testAi" type="button" class="secondary">Test connection</button>
           </div>
         </div>
 
+        <p id="testStatus" class="test-status" hidden></p>
         <button id="saveAi" type="button">Save AI settings</button>
         <p id="saveAiFeedback" class="save-feedback" aria-live="polite"></p>
       </section>
