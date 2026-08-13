@@ -234,12 +234,13 @@
       .continue-it-progress {
         position: fixed;
         inset: 0;
+        z-index: 2147483644;
         pointer-events: none;
       }
       .continue-it-progress-scrim {
         position: fixed;
         inset: 0;
-        z-index: 2147483644;
+        z-index: 0;
         pointer-events: none;
         /* Flat colour on purpose: a backdrop-filter here would promote the whole
            page to a composited layer while we are programmatically scrolling a
@@ -251,7 +252,7 @@
       .continue-it-progress-ring {
         position: fixed;
         inset: 0;
-        z-index: 2147483645;
+        z-index: 1;
         pointer-events: none;
         opacity: 0;
         transition: opacity 0.25s ease;
@@ -289,7 +290,7 @@
         position: fixed;
         right: 20px;
         bottom: 72px;
-        z-index: 2147483646;
+        z-index: 2;
         box-sizing: border-box;
         width: 300px;
         max-width: calc(100vw - 40px);
@@ -304,6 +305,17 @@
         opacity: 0;
         transform: translateY(10px);
         transition: opacity 0.22s ease, transform 0.22s ease;
+      }
+      .ci-chip-live {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        margin: -1px;
+        padding: 0;
+        border: 0;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        white-space: nowrap;
       }
       .continue-it-progress.is-visible .continue-it-progress-scrim,
       .continue-it-progress.is-visible .continue-it-progress-ring,
@@ -637,7 +649,7 @@
           <rect class="ci-ring-beam" pathLength="100"></rect>
         </svg>
       </div>
-      <div class="continue-it-progress-chip" role="status" aria-live="polite">
+      <div class="continue-it-progress-chip">
         <div class="ci-chip-top">
           <span class="ci-chip-spinner" aria-hidden="true"></span>
           <span class="ci-chip-label"></span>
@@ -647,6 +659,7 @@
           <div class="ci-chip-bar-fill"></div>
         </div>
         <div class="ci-chip-detail"></div>
+        <div class="ci-chip-live" role="status" aria-live="polite" aria-atomic="true"></div>
       </div>
     `;
 
@@ -656,6 +669,7 @@
     const labelEl = host.querySelector(".ci-chip-label");
     const elapsedEl = host.querySelector(".ci-chip-elapsed");
     const detailEl = host.querySelector(".ci-chip-detail");
+    const liveEl = host.querySelector(".ci-chip-live");
     const barEl = host.querySelector(".ci-chip-bar");
     const barFillEl = host.querySelector(".ci-chip-bar-fill");
 
@@ -672,6 +686,8 @@
       slowHint: "",
       terminal: false
     };
+    let closed = false;
+    let terminalTimeout = null;
 
     function sizeRing() {
       const width = Math.max(window.innerWidth || 0, 1);
@@ -708,6 +724,10 @@
       });
     }
 
+    function announce() {
+      liveEl.textContent = state.detail ? `${state.label}. ${state.detail}` : state.label;
+    }
+
     function tick() {
       if (state.terminal) {
         return;
@@ -725,16 +745,25 @@
     document.body.appendChild(host);
     sizeRing();
     render();
+    announce();
     // Next frame, so the fade-in transition actually runs.
     requestAnimationFrame(() => host.classList.add("is-visible"));
 
     function close() {
+      if (closed) {
+        return;
+      }
+      closed = true;
       // Any later phase()/set()/succeed() call on this controller is a no-op, so
       // a superseded export cannot repaint the shared launcher button.
       state.terminal = state.terminal || "closed";
       if (timer) {
         clearInterval(timer);
         timer = null;
+      }
+      if (terminalTimeout) {
+        clearTimeout(terminalTimeout);
+        terminalTimeout = null;
       }
       window.removeEventListener("resize", sizeRing);
       setLauncherBusy(launcherId, { busy: false });
@@ -746,7 +775,7 @@
     }
 
     function phase({ label: phaseLabel, detail = "", from, to, creep = false, slowHintAfter = 0, slowHint = "" }) {
-      if (state.terminal) {
+      if (state.terminal || closed) {
         return;
       }
       if (phaseLabel) {
@@ -763,11 +792,12 @@
       state.slowHint = slowHint;
       state.dots = 0;
       render();
+      announce();
     }
 
     // `fraction` is progress within the current phase, 0..1.
     function set(fraction, detail) {
-      if (state.terminal) {
+      if (state.terminal || closed) {
         return;
       }
       const target = state.from + (state.to - state.from) * clamp01(fraction);
@@ -779,7 +809,7 @@
     }
 
     function setDetail(detail) {
-      if (state.terminal) {
+      if (state.terminal || closed) {
         return;
       }
       state.detail = detail || "";
@@ -787,7 +817,7 @@
     }
 
     function finish(tone, message, detail, holdMs) {
-      if (state.terminal) {
+      if (state.terminal || closed) {
         return;
       }
       state.terminal = tone;
@@ -804,7 +834,8 @@
         timer = null;
       }
       render();
-      setTimeout(close, holdMs);
+      announce();
+      terminalTimeout = setTimeout(close, holdMs);
     }
 
     const controller = {

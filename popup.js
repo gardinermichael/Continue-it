@@ -218,7 +218,14 @@ saveAiButton.addEventListener("click", async () => {
 
   if (mode === ai.AI_MODES.builtin) {
     await ai.saveSettings({ mode });
-    showSaveFeedback("✓ Saved — Chrome built-in AI enabled when available.");
+    showSaveFeedback("✓ Saved — preparing Chrome built-in AI.");
+    const result = await ai.prewarmBuiltInModel();
+    showSaveFeedback(
+      result && result.ok
+        ? "✓ Saved — Chrome built-in AI is ready."
+        : `⚠ Saved, but Chrome built-in AI is not ready: ${result ? result.error : "no response"}`,
+      result && result.ok ? "success" : "warning"
+    );
     return;
   }
 
@@ -293,37 +300,45 @@ function startTestStatus(message) {
 }
 
 testBuiltInButton.addEventListener("click", async () => {
-  await ai.saveSettings({ mode: ai.AI_MODES.builtin });
-  startTestStatus("Testing Chrome built-in AI");
-  const result = await ai.testConnection();
-  if (result && result.ok) {
-    setTestStatus("Chrome built-in AI is ready.", "ok");
-  } else {
-    setTestStatus(`Test failed: ${result ? result.error : "no response"}`, "error");
+  try {
+    await ai.saveSettings({ mode: ai.AI_MODES.builtin });
+    startTestStatus("Testing Chrome built-in AI");
+    const result = await ai.testConnection();
+    if (result && result.ok) {
+      setTestStatus("Chrome built-in AI is ready.", "ok");
+    } else {
+      setTestStatus(`Test failed: ${result ? result.error : "no response"}`, "error");
+    }
+  } catch (error) {
+    setTestStatus(`Test failed: ${error?.message || String(error)}`, "error");
   }
 });
 
 testAiButton.addEventListener("click", async () => {
-  const mode = selectedAiMode();
-  if (mode === ai.AI_MODES.byok) {
-    const baseUrl = byokBaseUrlEl.value.trim();
-    if (!baseUrl || !byokModelEl.value.trim() || !byokApiKeyEl.value.trim()) {
-      setTestStatus("Enter a base URL, model, and API key first.", "error");
-      return;
+  try {
+    const mode = selectedAiMode();
+    if (mode === ai.AI_MODES.byok) {
+      const baseUrl = byokBaseUrlEl.value.trim();
+      if (!baseUrl || !byokModelEl.value.trim() || !byokApiKeyEl.value.trim()) {
+        setTestStatus("Enter a base URL, model, and API key first.", "error");
+        return;
+      }
+      await persistByok();
+      const granted = await ai.requestOriginPermission(baseUrl);
+      if (!granted) {
+        setTestStatus(`Access to ${baseUrl} was not granted. Allow it to test.`, "error");
+        return;
+      }
     }
-    await persistByok();
-    const granted = await ai.requestOriginPermission(baseUrl);
-    if (!granted) {
-      setTestStatus(`Access to ${baseUrl} was not granted. Allow it to test.`, "error");
-      return;
+    startTestStatus("Testing connection");
+    const result = await ai.testConnection();
+    if (result && result.ok) {
+      setTestStatus("Connection works. AI summaries are ready.", "ok");
+    } else {
+      setTestStatus(`Test failed: ${result ? result.error : "no response"}`, "error");
     }
-  }
-  startTestStatus("Testing connection");
-  const result = await ai.testConnection();
-  if (result && result.ok) {
-    setTestStatus("Connection works. AI summaries are ready.", "ok");
-  } else {
-    setTestStatus(`Test failed: ${result ? result.error : "no response"}`, "error");
+  } catch (error) {
+    setTestStatus(`Test failed: ${error?.message || String(error)}`, "error");
   }
 });
 

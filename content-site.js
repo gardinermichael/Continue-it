@@ -712,6 +712,10 @@
   }
 
   async function _exportConversation(progress) {
+    const builtInPrewarm = window.ContinueItAI && typeof window.ContinueItAI.prewarmBuiltInModel === "function"
+      ? window.ContinueItAI.prewarmBuiltInModel()
+      : null;
+
     progress.phase({
       label: `Scanning ${provider.name} conversation`,
       detail: "Scrolling back for the full transcript…",
@@ -722,7 +726,6 @@
     const { messages, diagnostics, rawCandidates } = await captureConversation({
       onProgress: ({ fraction, detail }) => progress.set(fraction, detail)
     });
-
     if (!messages.length) {
       progress.fail("No messages found", `Nothing to export from this ${provider.name} page.`);
       ui.toast(`No ${provider.name} messages found on this page.`, "error");
@@ -755,6 +758,13 @@
       const aiSettings = await window.ContinueItAI.getSettings();
       const modes = window.ContinueItAI.AI_MODES;
       const usingAI = aiSettings.mode !== modes.none;
+      if (aiSettings.mode === modes.builtin && builtInPrewarm) {
+        builtInPrewarm.then((result) => {
+          if (result && !result.ok && result.error) {
+            console.warn(`[Continue It] Chrome built-in AI prewarm failed: ${result.error}`);
+          }
+        });
+      }
       if (usingAI) {
         const phaseLabel = aiSettings.mode === modes.server
           ? "Contacting Server AI"
@@ -783,6 +793,7 @@
       });
       if (aiResult.summary) {
         handoff.summary = aiResult.summary;
+        (aiResult.warnings || []).forEach((warning) => handoff.warnings.push(warning));
         if (aiSettings.mode === modes.server) {
           summarySource = "Server AI (backend API)";
           const left = aiResult.quota && Number.isFinite(aiResult.quota.remaining)
@@ -810,8 +821,8 @@
 
     progress.phase({ label: "Preparing review", detail: "", from: 0.94, to: 1 });
     await shared.resetChunkCursor(handoff.id);
-    progress.succeed("Export ready");
     await openExportModal(handoff, { rawCandidates, diagnostics, messageCount: messages.length });
+    progress.succeed("Export ready");
   }
 
   async function importConversation() {
@@ -837,6 +848,9 @@
   }
 
   function boot() {
+    if (window.ContinueItAI && typeof window.ContinueItAI.getSettings === "function") {
+      window.ContinueItAI.getSettings();
+    }
     ui.mountLauncher({
       id: LAUNCHER_ID,
       label: "Continue It",
