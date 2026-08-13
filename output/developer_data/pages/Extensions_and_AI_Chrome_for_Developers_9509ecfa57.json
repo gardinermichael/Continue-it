@@ -1,0 +1,197 @@
+{
+  "url": "https://developer.chrome.com/docs/extensions/ai",
+  "title": "Extensions and AI | Chrome for Developers",
+  "content": "Learn how to work with AI coding tools to build and debug your extensions and unlock faster, smarter development and more powerful user experiences.\n\nInstall Chrome extensions skill from Modern Web Guidance via CLI:",
+  "headings": [
+    {
+      "level": "h3",
+      "text": "Extensions and AI",
+      "id": "extensions-and-ai"
+    },
+    {
+      "level": "h3",
+      "text": "Build extensions with AI coding tools",
+      "id": "build-extensions-with-ai-coding-tools"
+    },
+    {
+      "level": "h3",
+      "text": "Enhance browsing with AI-powered extensions",
+      "id": "enhance-browsing-with-ai-powered-extensions"
+    },
+    {
+      "level": "h4",
+      "text": "Control web content",
+      "id": "control-web-content"
+    },
+    {
+      "level": "h4",
+      "text": "Make the browser more helpful",
+      "id": "make-the-browser-more-helpful"
+    },
+    {
+      "level": "h4",
+      "text": "Customize the browser",
+      "id": "customize-the-browser"
+    },
+    {
+      "level": "h3",
+      "text": "Build AI-powered Chrome Extensions with Gemini",
+      "id": "build-ai-powered-chrome-extensions-with-gemini"
+    },
+    {
+      "level": "h3",
+      "text": "Even more use cases",
+      "id": "even-more-use-cases"
+    },
+    {
+      "level": "h2",
+      "text": "Integrate AI with extensions",
+      "id": "integrate-ai-with-extensions"
+    },
+    {
+      "level": "h3",
+      "text": "Client-side AI",
+      "id": "client-side-ai"
+    },
+    {
+      "level": "h3",
+      "text": "Cloud AI",
+      "id": "cloud-ai"
+    },
+    {
+      "level": "h2",
+      "text": "Agentic AI and extensions",
+      "id": "agentic-ai-and-extensions"
+    },
+    {
+      "level": "h3",
+      "text": "WebMCP",
+      "id": "webmcp"
+    },
+    {
+      "level": "h3",
+      "text": "Security considerations",
+      "id": "security-considerations"
+    },
+    {
+      "level": "h2",
+      "text": "Built-in AI APIs",
+      "id": "built-in-ai-apis"
+    },
+    {
+      "level": "h3",
+      "text": "Prompt API",
+      "id": "prompt-api"
+    },
+    {
+      "level": "h3",
+      "text": "Writer API",
+      "id": "writer-api"
+    },
+    {
+      "level": "h3",
+      "text": "Rewriter API",
+      "id": "rewriter-api"
+    },
+    {
+      "level": "h3",
+      "text": "Translator API",
+      "id": "translator-api"
+    },
+    {
+      "level": "h3",
+      "text": "Language Detector API",
+      "id": "language-detector-api"
+    },
+    {
+      "level": "h3",
+      "text": "Summarizer API",
+      "id": "summarizer-api"
+    },
+    {
+      "level": "h3",
+      "text": "Proofreader API",
+      "id": "proofreader-api"
+    },
+    {
+      "level": "h2",
+      "text": "AI-powered extensions in action",
+      "id": "ai-powered-extensions-in-action"
+    },
+    {
+      "level": "h3",
+      "text": "How to use the Gemini Cloud API in a Chrome extension",
+      "id": "how-to-use-the-gemini-cloud-api-in-a-chrome-extension"
+    },
+    {
+      "level": "h3",
+      "text": "How to use the Prompt API in a Chrome extension",
+      "id": "how-to-use-the-prompt-api-in-a-chrome-extension"
+    },
+    {
+      "level": "h3",
+      "text": "Client-side summarization with an on-device model",
+      "id": "client-side-summarization-with-an-on-device-model"
+    },
+    {
+      "level": "h2",
+      "text": "Origin trials and Early Preview Program",
+      "id": "origin-trials-and-early-preview-program"
+    },
+    {
+      "level": "h3",
+      "text": "New APIs at I﻿/﻿O 2025",
+      "id": "new-apis-at-ixfeffxfeffo-2025"
+    },
+    {
+      "level": "h3",
+      "text": "Higher quality summaries with LoRA",
+      "id": "higher-quality-summaries-with-lora"
+    },
+    {
+      "level": "h3",
+      "text": "Participate in the built-in AI Early Preview Program",
+      "id": "participate-in-the-built-in-ai-early-preview-program"
+    },
+    {
+      "level": "h2",
+      "text": "Best practices",
+      "id": "best-practices"
+    },
+    {
+      "level": "h3",
+      "text": "When possible, use smaller models",
+      "id": "when-possible-use-smaller-models"
+    },
+    {
+      "level": "h3",
+      "text": "Protect your API keys",
+      "id": "protect-your-api-keys"
+    },
+    {
+      "level": "h3",
+      "text": "Protect user privacy",
+      "id": "protect-user-privacy"
+    },
+    {
+      "level": "h3",
+      "text": "What is AI?",
+      "id": "what-is-ai"
+    },
+    {
+      "level": "h3",
+      "text": "Learn how to build extensions",
+      "id": "learn-how-to-build-extensions"
+    },
+    {
+      "level": "h3",
+      "text": "AI on Chrome",
+      "id": "ai-on-chrome"
+    }
+  ],
+  "code_samples": [],
+  "patterns": [],
+  "links": [
+    "https://developer.chrome.com/docs/extensions/ai/build-with-ai"
+  ]
+}

@@ -88,9 +88,36 @@ function isUnavailableAvailability(value) {
   return value === "unavailable" || value === "no";
 }
 
-function chromeBuiltInCreateOptions() {
+function isContextLimitError(error) {
+  return error?.name === "QuotaExceededError" || /quota|context/i.test(error?.message || "");
+}
+
+async function chromeBuiltInCoreOptions() {
+  const coreOptions = { ...CHROME_BUILTIN_LANGUAGE_OPTIONS };
+  if (typeof LanguageModel.params !== "function") {
+    return coreOptions;
+  }
+
+  try {
+    const params = await LanguageModel.params();
+    const defaultTemperature = Number.isFinite(params?.defaultTemperature) ? params.defaultTemperature : 1;
+    const maxTemperature = Number.isFinite(params?.maxTemperature) ? params.maxTemperature : defaultTemperature;
+    const topK = Number.isFinite(params?.defaultTopK) ? params.defaultTopK : undefined;
+    const temperature = Math.min(defaultTemperature, maxTemperature, 0.7);
+
+    if (Number.isFinite(topK) && Number.isFinite(temperature)) {
+      return { ...coreOptions, topK, temperature };
+    }
+  } catch (error) {
+    console.warn("[Continue It] Could not read Chrome built-in AI model params.", error);
+  }
+
+  return coreOptions;
+}
+
+function chromeBuiltInCreateOptions(coreOptions) {
   return {
-    ...CHROME_BUILTIN_LANGUAGE_OPTIONS,
+    ...coreOptions,
     initialPrompts: [{ role: "system", content: SUMMARY_SYSTEM_PROMPT }],
     monitor(monitor) {
       monitor.addEventListener("downloadprogress", (event) => {
@@ -112,8 +139,10 @@ async function createChromeBuiltInSession() {
   }
 
   let availability = "unknown";
+  let coreOptions = CHROME_BUILTIN_LANGUAGE_OPTIONS;
   try {
-    availability = await LanguageModel.availability(CHROME_BUILTIN_LANGUAGE_OPTIONS);
+    coreOptions = await chromeBuiltInCoreOptions();
+    availability = await LanguageModel.availability(coreOptions);
   } catch (error) {
     return {
       ok: false,
@@ -135,7 +164,7 @@ async function createChromeBuiltInSession() {
   try {
     return {
       ok: true,
-      session: await LanguageModel.create(chromeBuiltInCreateOptions()),
+      session: await LanguageModel.create(chromeBuiltInCreateOptions(coreOptions)),
       availability,
       error: null
     };
@@ -193,6 +222,9 @@ function normalizeContextUsage(measured) {
 }
 
 async function measurePromptContextUsage(session, prompt) {
+  if (session && typeof session.measureInputUsage === "function") {
+    return normalizeContextUsage(await session.measureInputUsage(prompt));
+  }
   if (session && typeof session.measureContextUsage === "function") {
     return normalizeContextUsage(await session.measureContextUsage(prompt));
   }
@@ -274,6 +306,19 @@ async function buildPromptWithinSessionQuota(session, payload) {
   return { prompt: bestPrompt, quota, usage: bestUsage, truncated: true };
 }
 
+async function collectChromeBuiltInPrompt(session, prompt) {
+  if (typeof session.promptStreaming !== "function") {
+    return session.prompt(prompt);
+  }
+
+  let response = "";
+  const stream = session.promptStreaming(prompt);
+  for await (const chunk of stream) {
+    response += chunk;
+  }
+  return response;
+}
+
 async function summarizeViaChromeBuiltIn(payload) {
   let session = null;
   let overflowed = false;
@@ -285,13 +330,16 @@ async function summarizeViaChromeBuiltIn(payload) {
 
     session = sessionResult.session;
     if (typeof session.addEventListener === "function") {
-      session.addEventListener("contextoverflow", () => {
+      const onOverflow = () => {
         overflowed = true;
-      });
+        console.warn("[Continue It] Chrome built-in AI context overflowed; some prompt context may be dropped.");
+      };
+      session.addEventListener("quotaoverflow", onOverflow);
+      session.addEventListener("contextoverflow", onOverflow);
     }
 
     const fitted = await buildPromptWithinSessionQuota(session, payload);
-    const summary = (await session.prompt(fitted.prompt)).trim();
+    const summary = (await collectChromeBuiltInPrompt(session, fitted.prompt)).trim();
     if (!summary) {
       return { ok: false, used: true, summary: null, error: "Chrome built-in AI returned an empty summary." };
     }
@@ -306,6 +354,14 @@ async function summarizeViaChromeBuiltIn(payload) {
 
     return { ok: true, used: true, summary, quota: null, warnings, error: null };
   } catch (error) {
+    if (isContextLimitError(error)) {
+      return {
+        ok: false,
+        used: true,
+        summary: null,
+        error: "Chrome built-in AI could not fit the full conversation in its context window. Use Server AI or Custom API key for this larger handoff."
+      };
+    }
     return { ok: false, used: true, summary: null, error: `Chrome built-in AI failed: ${error?.message || String(error)}` };
   } finally {
     if (session) {

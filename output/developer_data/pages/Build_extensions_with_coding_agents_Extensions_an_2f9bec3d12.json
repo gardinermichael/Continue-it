@@ -1,0 +1,114 @@
+{
+  "url": "https://developer.chrome.com/docs/extensions/ai/build-with-ai",
+  "title": "Build extensions with coding agents | Extensions and AI | Chrome for Developers",
+  "content": "AI coding agents, like Antigravity, can now generate extension code with impressive accuracy. However, to truly unlock their potential and ensure high-quality results, you need to provide them with the right context and tools.\n\nThis guide explains how to setup the right tools in your coding agents and how they can help you build better extensions faster.\n\nWe have created a skill for coding agents specifically designed for extension development. This skill is a part of our broader initiative, Modern Web Guidance, which provides AI coding agents with the web platform expertise, best practices, and modern API patterns.\n\nBut building the extension is just the first step. To help you verify that your code works as expected, Chrome DevTools for agents enables AI coding assistants to debug extensions directly in Chrome and benefit from DevTools debugging capabilities and performance insights.\n\nTo use the skills pack, install Modern Web Guidance to your preferred environment and add the extensions skill to it. Here are the instructions for some of the popular tools.\n\nThe recommended installation for most coding agents (including Gemini CLI, Claude Code and Codex) is through the modern-web-guidance CLI built by the Chrome team. Installing the skills through the modern-web-guidance CLI will automatically keep skills up to date.\n\nThis runs an interactive wizard to install the skills to your preferences. When presented with options, select your coding agent(s) and choose both chrome-extensions and modern-web-guidance.\n\nSelecting chrome-extensions and modern-web-guidance in the installer wizard.\n\nWhen installing Antigravity, you can select the Modern Web Guidance plugin which includes the extensions skill, or you can add it through Customizations > Build With Google Plugins > Modern Web Guidance.\n\nSelecting the Modern Web Guidance plugin during Antigravity installation.\n\nAdding Modern Web Guidance through Customizations after installation.\n\nYou can add Chrome DevTools for agents to your coding agent of choice either as a plugin, extension or as an MCP server.\n\nHere are the instructions for some of the most popular agents.\n\nOn startup, or in Settings > Customizations, under Build with Google enable Chrome DevTools. This will only install the Chrome DevTools skill, but not the MCP server.\n\nTo add the Chrome DevTools MCP server go to Settings > Customization, click the Add MCP server button and search for Chrome DevTools.\n\nClick Open MCP Config to open the MCP server configuration. Note that you have to close the settings to see the configuration file in the IDE.\n\nAdd the following two configuration parameters: --categoryExtensions (to enable the extensions tools) and --autoConnect (to enable connecting to an existing Chrome Profile, which is required when using Chrome's built-in AI APIs or requiring sign-in).\n\nTo enable remote debugging, open Chrome, navigate to chrome://inspect/#remote-debugging and select Allow remote debugging for this browser instance.\n\nRestart Antigravity IDE.\n\nCreate a new workspace and create a test prompt: \"Create a hello world Chrome extension. Test using Chrome DevTools.\" When the agent initiates testing the extension in the browser, Chrome will show you a dialog requesting remote debugging permission. Select Allow. While the remote debugging session is enabled, Chrome will display a banner \"Chrome is currently controlled by automated test software\".\n\nFor instructions on setting up other agents, check the docs on Chrome DevTools MCP GitHub.\n\nAn important part of publishing an extension is filling out the Developer Dashboard. The skill addresses this by having your coding agent create and maintain a CHROMEWEBSTORE.md file which tracks necessary information, including justifications for each permission requested in the code.\n\nThe skill will get triggered when you use phrases like \"Let's publish this\" or \"Prepare this extension for the store\", but to streamline your agentic workflows, add the following to your agent's system instructions (for example, ~/.gemini/GEMINI.md for Antigravity or ~/.claude/CLAUDE.md for Claude):\n\nThe extension skill included in Modern Web Guidance helps agents in three key ways:\n\nModern Web Guidance also includes skills that cover everything you need to deliver an excellent user experience, such as performance, accessibility, and modern APIs. For example, built-in AI API skills make sure that AI coding agents always use the latest version of the API together with additional information about explicit architectural rules and hardware constraints for using these APIs, to enable efficient management of model downloads, focus on security, and graceful fallback strategies.\n\nThe skill also helps your agent track necessary information for publishing, including justifications for each permission requested in the code. For example, if you ask your coding agent to build an extension using the Side Panel API and to publish it to the Chrome Web Store, the agent will recognize that it needs the sidePanel permission. It will then create a CHROMEWEBSTORE.md file with a justification. When you are ready to submit, you can review this justification, make any adjustments if needed, and copy it straight into the Developer Dashboard.\n\nChrome DevTools for agents enables AI coding assistants to install and debug extensions in a running Chrome instance, specifically:\n\nHere's a prompt and a video showing how that works in practice:\n\nIn this case, the agent should create a Manifest V3 file and request the storage permission because it knows it needs to persist data. The agent can now build an extension, install it, watch it run, and verify its stability without you ever leaving the chat interface.\n\nThis is a simple prompt example. To learn more about different prompt techniques and find what works best for your use case, check out our guide on Prompt engineering.\n\nWhile installing the extension skill and adding instructions to your agent will do most of the work, being specific in your prompts can produce better results for the stage of development you're in. Here's a quick guide on how to prompt your agent to create, update, and maintain your CHROMEWEBSTORE.md file.\n\nCombining Modern Web Guidance skills with Chrome DevTools for agents helps you build high-quality features faster but also ensures your extension is stable and ready for submission to the Chrome Web Store.\n\nStart experimenting with these tools in your next project to see how they can streamline your extension development from initial prototype to publication.\n\nExcept as otherwise noted, the content of this page is licensed under the Creative Commons Attribution 4.0 License, and code samples are licensed under the Apache 2.0 License. For details, see the Google Developers Site Policies. Java is a registered trademark of Oracle and/or its affiliates.\n\nLast updated 2026-05-19 UTC.",
+  "headings": [
+    {
+      "level": "h1",
+      "text": "Build extensions with coding agents Stay organized with collections Save and categorize content based on your preferences.",
+      "id": ""
+    },
+    {
+      "level": "h2",
+      "text": "Setup",
+      "id": "setup"
+    },
+    {
+      "level": "h3",
+      "text": "Modern Web Guidance",
+      "id": "modern_web_guidance"
+    },
+    {
+      "level": "h4",
+      "text": "CLI",
+      "id": "cli"
+    },
+    {
+      "level": "h4",
+      "text": "Antigravity",
+      "id": "antigravity"
+    },
+    {
+      "level": "h3",
+      "text": "Chrome DevTools for coding agents",
+      "id": "chrome_devtools_for_coding_agents"
+    },
+    {
+      "level": "h4",
+      "text": "Antigravity",
+      "id": "antigravity_2"
+    },
+    {
+      "level": "h4",
+      "text": "Claude Code",
+      "id": "claude_code"
+    },
+    {
+      "level": "h4",
+      "text": "Other agents",
+      "id": "other_agents"
+    },
+    {
+      "level": "h3",
+      "text": "CHROMEWEBSTORE.md agent instructions",
+      "id": "chromewebstoremd_agent_instructions"
+    },
+    {
+      "level": "h2",
+      "text": "Build and test your extension with coding agents",
+      "id": "build_and_test_your_extension_with_coding_agents"
+    },
+    {
+      "level": "h2",
+      "text": "Prompt examples to streamline distribution with CHROMEWEBSTORE.md",
+      "id": "prompt_examples_to_streamline_distribution_with_chromewebstoremd"
+    },
+    {
+      "level": "h2",
+      "text": "Conclusion",
+      "id": "conclusion"
+    }
+  ],
+  "code_samples": [
+    {
+      "code": "npx modern-web-guidance@latest install --choose",
+      "language": "elixir"
+    },
+    {
+      "code": "{\n \"mcpServers\": {\n   \"chrome-devtools-mcp\": {\n     \"args\": [\n       \"-y\",\n       \"chrome-devtools-mcp@latest\",\n       \"--categoryExtensions\",\n       \"--autoConnect\"\n     ],\n     \"command\": \"npx\"\n   }\n }\n}",
+      "language": "json"
+    },
+    {
+      "code": "<figure>\n  <img src=\"image/antigravityide--u84rk62f5t9.png\" alt=\"The remote debugging warning banner and approval popup dialog in Chrome.\" class=\"screenshot\" width=\"800\">\n  <figcaption>The remote debugging banner indicating automated browser control is active.</figcaption>\n</figure>",
+      "language": "jsx"
+    },
+    {
+      "code": "claude mcp add chrome-devtools --scope project -- npx chrome-devtools-mcp@latest --categoryExtensions --autoConnect",
+      "language": "elixir"
+    },
+    {
+      "code": "Whenever you are creating or making changes to a Chrome extension, create and manage a CHROMEWEBSTORE.md file. You can use the chrome-extensions skill to learn about the format of this file.",
+      "language": "elixir"
+    },
+    {
+      "code": "Build a simple \"Quick notes\" extension that opens a popup text area to save notes and test it in the browser.",
+      "language": "unknown"
+    },
+    {
+      "code": "Prepare the extension for publication on the Chrome Web Store.",
+      "language": "unknown"
+    },
+    {
+      "code": "We just added the 'declarativeNetRequest' and 'storage' permissions to our manifest. Let's update our store listing.",
+      "language": "sql"
+    },
+    {
+      "code": "Our extension submission was rejected because our privacy policy doesn't explicitly mention how we handle user data locally. Let's update the privacy policy section in CHROMEWEBSTORE.md to resolve this.",
+      "language": "sql"
+    }
+  ],
+  "patterns": [],
+  "links": [
+    "https://developer.chrome.com/docs/extensions/ai/build-with-ai"
+  ]
+}
