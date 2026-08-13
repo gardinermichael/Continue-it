@@ -444,6 +444,7 @@
 
   function buildHandoff(input) {
     const summaryMode = SUMMARY_MODES[input.summaryMode] ? input.summaryMode : DEFAULT_SUMMARY_MODE;
+    const rawMessages = sanitizeRawMessages(input.rawMessages || input.messages || []);
     const seenMessages = new Set();
     const recentKeys = [];
     const messages = (input.messages || []).map((message, index) => ({
@@ -499,6 +500,7 @@
       stats,
       diagnostics: input.diagnostics || {},
       warnings,
+      rawMessages,
       detectedFiles: extractFileMentions(messages, 12),
       sourceArtifacts: sanitizeSourceArtifacts(input.sourceArtifacts || [], input.pageUrl || "")
     };
@@ -626,6 +628,7 @@
       detectedFiles: handoff.detectedFiles,
       sourceArtifacts: handoff.sourceArtifacts || [],
       customPrompt: handoff.customPrompt || null,
+      rawMessages: handoff.rawMessages || [],
       messages: handoff.messages
     }, null, 2);
 
@@ -739,7 +742,12 @@
         "",
         "## Source Files",
         "",
-        ...handoff.sourceArtifacts.map((artifact) => `- ${artifact.title} (${artifact.fileType || "File"})${artifact.downloadUrl ? ` - ${artifact.downloadUrl}` : ""}`)
+        ...handoff.sourceArtifacts.map((artifact) => {
+          const urlNote = artifact.downloadUrl
+            ? ` - ${artifact.downloadUrl}${artifact.downloadUrlRedacted ? " (sensitive query parameters redacted)" : ""}`
+            : (artifact.downloadUrlRedacted ? " - [download URL redacted]" : "");
+          return `- ${artifact.title} (${artifact.fileType || "File"})${urlNote}`;
+        })
       );
     }
     return lines.join("\n");
@@ -782,11 +790,29 @@
         fileType,
         sourceUrl: item.sourceUrl || pageUrl || "",
         downloadUrl,
+        downloadUrlRedacted: Boolean(item.downloadUrlRedacted),
         visibleText,
         provider: item.provider || "",
         capturedAt: item.capturedAt || new Date().toISOString()
       };
     }).filter(Boolean).slice(0, 50);
+  }
+
+  function sanitizeRawMessages(items = []) {
+    return items.map((item, index) => {
+      const text = cleanMessageText(item.text || "");
+      if (!text) {
+        return null;
+      }
+      return {
+        id: item.id || `raw_${index + 1}`,
+        role: item.role === "assistant" || item.role === "user" ? item.role : "unknown",
+        text,
+        step: Number.isFinite(item.step) ? item.step : null,
+        top: Number.isFinite(item.top) ? item.top : null,
+        left: Number.isFinite(item.left) ? item.left : null
+      };
+    }).filter(Boolean);
   }
 
   function buildSourceArtifactContent(sourceArtifact, handoff) {
@@ -797,10 +823,13 @@
       fileType: sourceArtifact.fileType,
       sourceUrl: sourceArtifact.sourceUrl || handoff.pageUrl || "",
       downloadUrl: sourceArtifact.downloadUrl || "",
+      downloadUrlRedacted: Boolean(sourceArtifact.downloadUrlRedacted),
       provider: sourceArtifact.provider || handoff.source || "",
       capturedAt: sourceArtifact.capturedAt || handoff.createdAt || "",
       visibleText: sourceArtifact.visibleText || "",
-      note: sourceArtifact.downloadUrl
+      note: sourceArtifact.downloadUrlRedacted
+        ? "The extension captured a visible source file card and redacted sensitive URL query parameters before storage. File bytes were not fetched automatically."
+        : sourceArtifact.downloadUrl
         ? "The extension captured a visible source file card and its link. File bytes were not fetched automatically."
         : "The extension captured a visible source file card. The site did not expose a direct file URL to the content script."
     };
@@ -815,9 +844,28 @@
     const artifacts = [
       createArtifact({
         handoff,
-        kind: "raw-json",
-        title: "Raw transcript JSON",
-        fileName: `${basePath}/raw-transcript.json`,
+        kind: "raw-capture-json",
+        title: "Immutable raw capture JSON",
+        fileName: `${basePath}/raw-capture.json`,
+        mimeType: "application/json",
+        content: {
+          schemaVersion: 1,
+          kind: "immutable-raw-capture",
+          sessionId,
+          handoffId: handoff.id,
+          source: handoff.source || "Unknown",
+          pageTitle: handoff.pageTitle || "",
+          pageUrl: handoff.pageUrl || "",
+          capturedAt: handoff.createdAt || "",
+          diagnostics: handoff.diagnostics || {},
+          rawMessages: handoff.rawMessages || []
+        }
+      }),
+      createArtifact({
+        handoff,
+        kind: "normalized-handoff-json",
+        title: "Normalized handoff JSON",
+        fileName: `${basePath}/normalized-handoff.json`,
         mimeType: "application/json",
         content: packageInfo.rawJson
       }),
@@ -895,6 +943,8 @@
         summarySource: handoff.summarySource || "Local (no AI)",
         aiMode: aiModeForHandoff(handoff),
         stats: handoff.stats || {},
+        diagnostics: handoff.diagnostics || {},
+        warnings: handoff.warnings || [],
         sourceArtifacts: handoff.sourceArtifacts || [],
         artifacts: manifestArtifacts
       }
@@ -914,9 +964,28 @@
     });
 
     return Array.from(grouped.values()).flatMap((items) => {
-      return items
-        .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
-        .slice(0, LIMITS.maxArtifactsPerSession);
+      const bundles = new Map();
+      items.forEach((artifact) => {
+        const bundleId = artifact.handoffId || artifact.id;
+        if (!bundles.has(bundleId)) {
+          bundles.set(bundleId, []);
+        }
+        bundles.get(bundleId).push(artifact);
+      });
+
+      const sortedBundles = Array.from(bundles.values()).sort((a, b) => {
+        const aCreated = Math.max(...a.map((artifact) => new Date(artifact.createdAt || 0).getTime() || 0));
+        const bCreated = Math.max(...b.map((artifact) => new Date(artifact.createdAt || 0).getTime() || 0));
+        return bCreated - aCreated;
+      });
+
+      const kept = [];
+      for (const bundle of sortedBundles) {
+        if (kept.length === 0 || kept.length + bundle.length <= LIMITS.maxArtifactsPerSession) {
+          kept.push(...bundle);
+        }
+      }
+      return kept;
     });
   }
 
@@ -1091,12 +1160,50 @@
 
   async function clearHandoff() {
     const current = await getHandoff();
-    if (current) {
-      const cursors = await getStorage([STORAGE_KEYS.chunkCursor]);
-      const nextCursors = { ...(cursors[STORAGE_KEYS.chunkCursor] || {}) };
-      delete nextCursors[current.id];
-      await setStorage({ [STORAGE_KEYS.chunkCursor]: nextCursors });
+    if (!current) {
+      await removeStorage([STORAGE_KEYS.latest]);
+      return;
     }
+
+    const sessionId = sessionIdForHandoff(current);
+    const {
+      [STORAGE_KEYS.history]: existingHistory = [],
+      [STORAGE_KEYS.savedHandoffs]: existingSavedHandoffs = {},
+      [STORAGE_KEYS.chunkCursor]: existingChunkCursors = {},
+      [STORAGE_KEYS.artifacts]: existingArtifacts = {}
+    } = await getStorage([STORAGE_KEYS.history, STORAGE_KEYS.savedHandoffs, STORAGE_KEYS.chunkCursor, STORAGE_KEYS.artifacts]);
+    const removedHandoffIds = new Set([current.id]);
+    const nextHistory = (Array.isArray(existingHistory) ? existingHistory : []).filter((entry) => {
+      const entrySessionId = entry.sessionId || entry.id;
+      const remove = entrySessionId === sessionId || entry.id === current.id;
+      if (remove && entry.id) {
+        removedHandoffIds.add(entry.id);
+      }
+      return !remove;
+    });
+    const nextSavedHandoffs = Object.fromEntries(
+      Object.entries(existingSavedHandoffs || {}).filter(([id, handoff]) => {
+        const remove = id === current.id || sessionIdForHandoff(handoff) === sessionId;
+        if (remove) {
+          removedHandoffIds.add(id);
+        }
+        return !remove;
+      })
+    );
+    const nextArtifacts = Object.fromEntries(
+      Object.entries(existingArtifacts || {}).filter(([, artifact]) => {
+        return artifact.sessionId !== sessionId && !removedHandoffIds.has(artifact.handoffId);
+      })
+    );
+    const nextCursors = { ...(existingChunkCursors || {}) };
+    removedHandoffIds.forEach((id) => delete nextCursors[id]);
+
+    await setStorage({
+      [STORAGE_KEYS.history]: nextHistory,
+      [STORAGE_KEYS.savedHandoffs]: nextSavedHandoffs,
+      [STORAGE_KEYS.artifacts]: nextArtifacts,
+      [STORAGE_KEYS.chunkCursor]: nextCursors
+    });
     await removeStorage([STORAGE_KEYS.latest]);
   }
 

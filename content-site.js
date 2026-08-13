@@ -277,12 +277,13 @@
       const text = getNodeText(card);
       const link = card.matches?.("a[href]") ? card : card.querySelector?.("a[href]");
       const href = link?.href || "";
+      const sanitizedHref = sanitizeSourceArtifactUrl(href);
       if (!looksLikeSourceFileCard(card, text, href)) {
         return;
       }
       const title = sourceArtifactTitle(text);
       const fileType = sourceArtifactType(text, href);
-      const key = `${shared.normalizeText(title).toLowerCase()}|${href}|${fileType}`;
+      const key = `${shared.normalizeText(title).toLowerCase()}|${sanitizedHref.url}|${fileType}`;
       if (seen.has(key)) {
         return;
       }
@@ -291,7 +292,8 @@
         title,
         fileType,
         sourceUrl: window.location.href,
-        downloadUrl: href,
+        downloadUrl: sanitizedHref.url,
+        downloadUrlRedacted: sanitizedHref.redacted,
         visibleText: text,
         provider: provider.id,
         capturedAt: new Date().toISOString()
@@ -301,8 +303,46 @@
     return artifacts.slice(0, 50);
   }
 
+  function sanitizeSourceArtifactUrl(href) {
+    if (!href) {
+      return { url: "", redacted: false };
+    }
+
+    let url;
+    try {
+      url = new URL(href, window.location.href);
+    } catch (error) {
+      return { url: "", redacted: true };
+    }
+
+    const sensitiveParamPattern = /(^|[-_])(access[_-]?token|auth|authorization|credential|expires?|jwt|key|policy|secret|session|signature|sig|token)([-_]|$)|^x-amz-|^x-goog-|^googleaccessid$|^awsaccesskeyid$|^key-pair-id$|^response-/i;
+    let redacted = false;
+    Array.from(url.searchParams.keys()).forEach((name) => {
+      if (sensitiveParamPattern.test(name)) {
+        url.searchParams.delete(name);
+        redacted = true;
+      }
+    });
+    if (redacted && !url.searchParams.toString()) {
+      url.search = "";
+    }
+    url.hash = "";
+    return { url: url.toString(), redacted };
+  }
+
   function sourceArtifactKey(artifact) {
     return `${shared.normalizeText(artifact.title).toLowerCase()}|${artifact.downloadUrl || ""}|${artifact.fileType || ""}`;
+  }
+
+  function rawMessagesFromCandidates(candidates) {
+    return (candidates || []).map((candidate, index) => ({
+      id: candidate.key || `raw_${index + 1}`,
+      role: candidate.role || "unknown",
+      text: candidate.text || "",
+      step: Number.isFinite(candidate.step) ? candidate.step : null,
+      top: Number.isFinite(candidate.top) ? Math.round(candidate.top) : null,
+      left: Number.isFinite(candidate.left) ? Math.round(candidate.left) : null
+    }));
   }
 
   function mergeCandidates(nodes, step) {
@@ -898,6 +938,7 @@
       pageUrl: location.href,
       summaryMode,
       messages,
+      rawMessages: rawMessagesFromCandidates(rawCandidates),
       diagnostics,
       sourceArtifacts
     });
