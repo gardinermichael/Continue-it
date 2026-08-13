@@ -260,44 +260,85 @@ saveAiButton.addEventListener("click", async () => {
   );
 });
 
+let testTicker = null;
+
+function stopTestTicker() {
+  if (testTicker) {
+    clearInterval(testTicker);
+    testTicker = null;
+  }
+  testBuiltInButton.disabled = false;
+  testAiButton.disabled = false;
+}
+
 function setTestStatus(message, state) {
+  stopTestTicker();
   testStatusEl.textContent = message;
   testStatusEl.className = "test-status" + (state ? ` ${state}` : "");
   testStatusEl.hidden = !message;
 }
 
+// A model round trip can take a while. Animated ellipses plus an elapsed second
+// counter are what tell the user the popup is waiting rather than wedged.
+function startTestStatus(message) {
+  stopTestTicker();
+  const startedAt = Date.now();
+  testBuiltInButton.disabled = true;
+  testAiButton.disabled = true;
+  testStatusEl.className = "test-status pending";
+  testStatusEl.hidden = false;
+
+  function paint() {
+    const elapsedMs = Date.now() - startedAt;
+    const dots = ".".repeat(1 + (Math.floor(elapsedMs / 400) % 3));
+    const seconds = Math.round(elapsedMs / 1000);
+    testStatusEl.textContent = `${message}${dots}${seconds >= 2 ? ` (${seconds}s)` : ""}`;
+  }
+
+  paint();
+  testTicker = setInterval(paint, 400);
+}
+
 testBuiltInButton.addEventListener("click", async () => {
-  await ai.saveSettings({ mode: ai.AI_MODES.builtin });
-  setTestStatus("Testing Chrome built-in AI…", "");
-  const result = await ai.testConnection();
-  if (result && result.ok) {
-    setTestStatus("Chrome built-in AI is ready.", "ok");
-  } else {
-    setTestStatus(`Test failed: ${result ? result.error : "no response"}`, "error");
+  try {
+    await ai.saveSettings({ mode: ai.AI_MODES.builtin });
+    startTestStatus("Testing Chrome built-in AI");
+    const result = await ai.testConnection();
+    if (result && result.ok) {
+      setTestStatus("Chrome built-in AI is ready.", "ok");
+    } else {
+      setTestStatus(`Test failed: ${result ? result.error : "no response"}`, "error");
+    }
+  } catch (error) {
+    setTestStatus(`Test failed: ${error?.message || String(error)}`, "error");
   }
 });
 
 testAiButton.addEventListener("click", async () => {
-  const mode = selectedAiMode();
-  if (mode === ai.AI_MODES.byok) {
-    const baseUrl = byokBaseUrlEl.value.trim();
-    if (!baseUrl || !byokModelEl.value.trim() || !byokApiKeyEl.value.trim()) {
-      setTestStatus("Enter a base URL, model, and API key first.", "error");
-      return;
+  try {
+    const mode = selectedAiMode();
+    if (mode === ai.AI_MODES.byok) {
+      const baseUrl = byokBaseUrlEl.value.trim();
+      if (!baseUrl || !byokModelEl.value.trim() || !byokApiKeyEl.value.trim()) {
+        setTestStatus("Enter a base URL, model, and API key first.", "error");
+        return;
+      }
+      await persistByok();
+      const granted = await ai.requestOriginPermission(baseUrl);
+      if (!granted) {
+        setTestStatus(`Access to ${baseUrl} was not granted. Allow it to test.`, "error");
+        return;
+      }
     }
-    await persistByok();
-    const granted = await ai.requestOriginPermission(baseUrl);
-    if (!granted) {
-      setTestStatus(`Access to ${baseUrl} was not granted. Allow it to test.`, "error");
-      return;
+    startTestStatus("Testing connection");
+    const result = await ai.testConnection();
+    if (result && result.ok) {
+      setTestStatus("Connection works. AI summaries are ready.", "ok");
+    } else {
+      setTestStatus(`Test failed: ${result ? result.error : "no response"}`, "error");
     }
-  }
-  setTestStatus("Testing connection…", "");
-  const result = await ai.testConnection();
-  if (result && result.ok) {
-    setTestStatus("Connection works. AI summaries are ready.", "ok");
-  } else {
-    setTestStatus(`Test failed: ${result ? result.error : "no response"}`, "error");
+  } catch (error) {
+    setTestStatus(`Test failed: ${error?.message || String(error)}`, "error");
   }
 });
 
