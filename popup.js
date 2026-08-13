@@ -75,6 +75,64 @@ function renderQuota(quota) {
   quotaInfoEl.className = quota.remaining <= 0 ? "hint quota-empty" : quota.remaining <= 1 ? "hint quota-low" : "hint";
 }
 
+function describeBuiltInStatus(status) {
+  if (!status || status.provider !== ai.AI_MODES.builtin) {
+    return null;
+  }
+  if (status.state === "downloading") {
+    return status.percent === null || status.percent === undefined
+      ? "Downloading Chrome built-in AI model..."
+      : `Downloading Chrome built-in AI model: ${status.percent}%.`;
+  }
+  if (status.state === "checking") {
+    return "Checking Chrome built-in AI availability...";
+  }
+  if (status.state === "preparing") {
+    return "Preparing Chrome built-in AI model...";
+  }
+  if (status.state === "ready") {
+    return "Chrome built-in AI is ready.";
+  }
+  if (status.state === "expired") {
+    return status.error || "Chrome built-in AI prewarm expired before it was used.";
+  }
+  if (status.state === "error") {
+    return `Chrome built-in AI is not ready: ${status.error || "unknown error"}`;
+  }
+  return null;
+}
+
+function statusClassForBuiltInStatus(status) {
+  if (!status) {
+    return "";
+  }
+  if (status.state === "ready") {
+    return "ok";
+  }
+  if (status.state === "error" || status.state === "expired") {
+    return "error";
+  }
+  return "pending";
+}
+
+function renderBuiltInStatus(status) {
+  if (selectedAiMode() !== ai.AI_MODES.builtin) {
+    return;
+  }
+  const message = describeBuiltInStatus(status);
+  if (!message) {
+    return;
+  }
+  const state = statusClassForBuiltInStatus(status);
+  if (state === "pending") {
+    testStatusEl.textContent = message;
+    testStatusEl.className = "test-status pending";
+    testStatusEl.hidden = false;
+    return;
+  }
+  setTestStatus(message, state);
+}
+
 function populateProviders(selectedId) {
   providerSelectEl.innerHTML = "";
   ai.PROVIDER_PRESETS.forEach((preset) => {
@@ -121,6 +179,9 @@ async function loadAiSettings() {
   }
   updateModeVisibility();
   renderQuota(settings.mode === ai.AI_MODES.server ? settings.lastQuota : null);
+  if (settings.mode === ai.AI_MODES.builtin) {
+    renderBuiltInStatus(await ai.getBuiltInStatus());
+  }
 }
 
 async function renderPopup() {
@@ -219,7 +280,15 @@ saveAiButton.addEventListener("click", async () => {
   if (mode === ai.AI_MODES.builtin) {
     await ai.saveSettings({ mode });
     showSaveFeedback("✓ Saved — preparing Chrome built-in AI.");
+    startTestStatus("Preparing Chrome built-in AI");
     const result = await ai.prewarmBuiltInModel();
+    stopTestTicker();
+    setTestStatus(
+      result && result.ok
+        ? "Chrome built-in AI is ready."
+        : `Chrome built-in AI is not ready: ${result ? result.error : "no response"}`,
+      result && result.ok ? "ok" : "error"
+    );
     showSaveFeedback(
       result && result.ok
         ? "✓ Saved — Chrome built-in AI is ready."
@@ -312,6 +381,10 @@ testBuiltInButton.addEventListener("click", async () => {
   } catch (error) {
     setTestStatus(`Test failed: ${error?.message || String(error)}`, "error");
   }
+});
+
+window.addEventListener("continueIt:builtinStatus", (event) => {
+  renderBuiltInStatus(event.detail || null);
 });
 
 testAiButton.addEventListener("click", async () => {

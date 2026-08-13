@@ -682,6 +682,45 @@
 
   let exportInFlight = false;
 
+  function describeBuiltInStatus(status) {
+    if (!status || status.provider !== "builtin") {
+      return "";
+    }
+    if (status.state === "downloading") {
+      return status.percent === null || status.percent === undefined
+        ? "Downloading Chrome built-in AI model..."
+        : `Downloading Chrome built-in AI model: ${status.percent}%.`;
+    }
+    if (status.state === "checking") {
+      return "Checking Chrome built-in AI availability...";
+    }
+    if (status.state === "preparing") {
+      return "Preparing Chrome built-in AI model...";
+    }
+    if (status.state === "ready") {
+      return "Chrome built-in AI model is ready.";
+    }
+    if (status.state === "expired") {
+      return status.error || "Chrome built-in AI prewarm expired before it was used.";
+    }
+    if (status.state === "error") {
+      return `Chrome built-in AI is not ready: ${status.error || "unknown error"}`;
+    }
+    return "";
+  }
+
+  function attachBuiltInProgress(progress) {
+    function onBuiltInStatus(event) {
+      const detail = describeBuiltInStatus(event.detail);
+      if (detail) {
+        progress.setDetail(detail);
+      }
+    }
+
+    window.addEventListener("continueIt:builtinStatus", onBuiltInStatus);
+    return () => window.removeEventListener("continueIt:builtinStatus", onBuiltInStatus);
+  }
+
   async function exportConversation() {
     if (exportInFlight) {
       ui.toast("An export is already running on this tab.", "warning");
@@ -785,12 +824,26 @@
       } else {
         progress.phase({ label: "Summarizing locally", from: 0.58, to: 0.94 });
       }
-      const aiResult = await window.ContinueItAI.summarizeConversation({
-        source: provider.name,
-        messages: handoff.messages,
-        mode: summaryMode,
-        shared
-      });
+      const detachBuiltInProgress = aiSettings.mode === modes.builtin ? attachBuiltInProgress(progress) : null;
+      if (detachBuiltInProgress && typeof window.ContinueItAI.getBuiltInStatus === "function") {
+        const detail = describeBuiltInStatus(await window.ContinueItAI.getBuiltInStatus());
+        if (detail) {
+          progress.setDetail(detail);
+        }
+      }
+      let aiResult;
+      try {
+        aiResult = await window.ContinueItAI.summarizeConversation({
+          source: provider.name,
+          messages: handoff.messages,
+          mode: summaryMode,
+          shared
+        });
+      } finally {
+        if (detachBuiltInProgress) {
+          detachBuiltInProgress();
+        }
+      }
       if (aiResult.summary) {
         handoff.summary = aiResult.summary;
         (aiResult.warnings || []).forEach((warning) => handoff.warnings.push(warning));

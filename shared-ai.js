@@ -12,7 +12,8 @@
     byokModel: "continueIt.ai.byokModel",
     byokApiKey: "continueIt.ai.byokApiKey",
     clientId: "continueIt.clientId",
-    lastQuota: "continueIt.ai.lastQuota"
+    lastQuota: "continueIt.ai.lastQuota",
+    chromeBuiltInStatus: "continueIt.ai.builtinStatus"
   };
 
   // Provider mode for the AI summary. Not to be confused with the "summary detail
@@ -143,6 +144,10 @@
     };
   }
 
+  function normalizeServerUrl(url) {
+    return (url || DEFAULT_SERVER_URL).trim().replace(/\/$/, "");
+  }
+
   async function getSettings() {
     const result = await getStorage(Object.values(STORAGE_KEYS));
     const mode = AI_MODES[result[STORAGE_KEYS.mode]] || DEFAULT_MODE;
@@ -166,7 +171,14 @@
       payload[STORAGE_KEYS.mode] = AI_MODES[settings.mode] || DEFAULT_MODE;
     }
     if (settings.serverUrl !== undefined) {
-      payload[STORAGE_KEYS.serverUrl] = settings.serverUrl || DEFAULT_SERVER_URL;
+      const currentServerUrl = cachedSettings
+        ? cachedSettings.serverUrl
+        : (await getStorage([STORAGE_KEYS.serverUrl]))[STORAGE_KEYS.serverUrl] || DEFAULT_SERVER_URL;
+      const nextServerUrl = settings.serverUrl || DEFAULT_SERVER_URL;
+      payload[STORAGE_KEYS.serverUrl] = nextServerUrl;
+      if (normalizeServerUrl(nextServerUrl) !== normalizeServerUrl(currentServerUrl)) {
+        payload[STORAGE_KEYS.lastQuota] = null;
+      }
     }
     if (settings.byok) {
       if (settings.byok.provider !== undefined) {
@@ -183,12 +195,7 @@
       }
     }
     await setStorage(payload);
-    if (settings.mode !== undefined) {
-      cachedSettings = cachedSettings || emptySettings();
-      cachedSettings.mode = AI_MODES[settings.mode] || DEFAULT_MODE;
-    } else {
-      cachedSettings = null;
-    }
+    cachedSettings = null;
   }
 
   async function saveLastQuota(quota) {
@@ -196,6 +203,11 @@
       return;
     }
     await setStorage({ [STORAGE_KEYS.lastQuota]: quota });
+  }
+
+  async function getBuiltInStatus() {
+    const result = await getStorage([STORAGE_KEYS.chromeBuiltInStatus]);
+    return result[STORAGE_KEYS.chromeBuiltInStatus] || null;
   }
 
   function maxTokensForMode(mode) {
@@ -280,14 +292,25 @@
       if (areaName !== "local") {
         return;
       }
-      if (changes[STORAGE_KEYS.mode]) {
-        cachedSettings = cachedSettings || emptySettings();
-        cachedSettings.mode = AI_MODES[changes[STORAGE_KEYS.mode].newValue] || DEFAULT_MODE;
-        return;
-      }
       if (Object.values(STORAGE_KEYS).some((key) => changes[key])) {
         cachedSettings = null;
       }
+      if (changes[STORAGE_KEYS.chromeBuiltInStatus] && typeof globalScope.dispatchEvent === "function") {
+        globalScope.dispatchEvent(new CustomEvent("continueIt:builtinStatus", {
+          detail: changes[STORAGE_KEYS.chromeBuiltInStatus].newValue || null
+        }));
+      }
+    });
+  }
+
+  if (chrome.runtime && chrome.runtime.onMessage) {
+    chrome.runtime.onMessage.addListener((message) => {
+      if (message?.type === "continueIt.builtinStatus" && typeof globalScope.dispatchEvent === "function") {
+        globalScope.dispatchEvent(new CustomEvent("continueIt:builtinStatus", {
+          detail: message.status || null
+        }));
+      }
+      return false;
     });
   }
 
@@ -360,6 +383,7 @@
     getSettings,
     saveSettings,
     saveLastQuota,
+    getBuiltInStatus,
     buildCompactConversation,
     maxTokensForMode,
     originPatternFor,

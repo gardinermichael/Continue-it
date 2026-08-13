@@ -26,6 +26,28 @@ const templates = [
   },
 ];
 
+function upsertMarkedBlock(existingContent, marker, content) {
+  const block = `${marker}\n${content}\n${marker}`;
+  const firstMarkerIndex = existingContent.indexOf(marker);
+  if (firstMarkerIndex === -1) {
+    return `${existingContent}\n\n${block}\n`;
+  }
+
+  const secondMarkerIndex = existingContent.indexOf(
+    marker,
+    firstMarkerIndex + marker.length
+  );
+  if (secondMarkerIndex === -1) {
+    return `${existingContent}\n\n${block}\n`;
+  }
+
+  return (
+    existingContent.slice(0, firstMarkerIndex) +
+    block +
+    existingContent.slice(secondMarkerIndex + marker.length)
+  );
+}
+
 /**
  * Synchronizes templates to a target directory.
  * @param {string} targetDir - The directory to sync to.
@@ -44,15 +66,23 @@ export function syncTemplates(targetDir, overwrite = false) {
     if (fs.existsSync(targetPath) && !overwrite) {
       console.log(`${template.name} already exists. Checking for content...`);
       const existingContent = fs.readFileSync(targetPath, 'utf8');
+      const nextContent = upsertMarkedBlock(
+        existingContent,
+        template.marker,
+        templateContent
+      );
 
-      // Check if we already appended this
-      if (existingContent.includes(template.marker)) {
-        console.log(`Content already present in ${template.name}. Skipping.`);
+      if (nextContent === existingContent) {
+        console.log(`Content already up to date in ${template.name}. Skipping.`);
         continue;
       }
 
-      fs.appendFileSync(targetPath, contentWithMarkers);
-      console.log(`Appended to ${template.name}.`);
+      fs.writeFileSync(targetPath, nextContent);
+      console.log(
+        existingContent.includes(template.marker)
+          ? `Updated marked block in ${template.name}.`
+          : `Appended to ${template.name}.`
+      );
     } else {
       console.log(
         `${overwrite ? 'Overwriting' : 'Creating'} ${template.name}...`

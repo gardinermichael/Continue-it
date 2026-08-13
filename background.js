@@ -10,23 +10,54 @@ const AI_STORAGE_KEYS = {
   serverUrl: "continueIt.ai.serverUrl",
   byokBaseUrl: "continueIt.ai.byokBaseUrl",
   byokModel: "continueIt.ai.byokModel",
-  byokApiKey: "continueIt.ai.byokApiKey"
+  byokApiKey: "continueIt.ai.byokApiKey",
+  chromeBuiltInStatus: "continueIt.ai.builtinStatus"
 };
 const DEFAULT_SERVER_URL = "http://localhost:8787";
 const CHROME_BUILTIN_MODE = "builtin";
+const CHROME_BUILTIN_PREWARM_TTL_MS = 2 * 60 * 1000;
 const SUMMARY_SYSTEM_PROMPT =
   "You are a context-transfer agent. Your job is to write a comprehensive handoff document that captures the COMPLETE context of a conversation so a different AI can continue it seamlessly — with zero information loss. Do NOT produce a brief summary. Write as much as needed to preserve all meaningful context. Use plain text only (no markdown headers, no code fences). Write in clear, complete sentences. Preserve specifics — exact names, exact values, exact error messages, exact file names — never replace them with vague references. A reader must be able to pick up the conversation mid-sentence without asking any clarifying questions.";
 const CHROME_BUILTIN_LANGUAGE_OPTIONS = {
-  expectedInputs: [{ type: "text", languages: ["en"] }],
+  expectedInputs: [{ type: "text" }],
   expectedOutputs: [{ type: "text", languages: ["en"] }]
 };
 
 let chromeBuiltInPrewarmPromise = null;
+let chromeBuiltInPrewarmExpiryTimer = null;
 
 function getStorage(keys) {
   return new Promise((resolve) => {
     chrome.storage.local.get(keys, (result) => resolve(result || {}));
   });
+}
+
+function setStorage(value) {
+  return new Promise((resolve) => {
+    chrome.storage.local.set(value, () => resolve());
+  });
+}
+
+function sendRuntimeStatusMessage(message) {
+  try {
+    chrome.runtime.sendMessage(message, () => {
+      // A popup/content listener may not be open. The storage write below is the
+      // durable status channel, so an absent receiver is not an error.
+      void chrome.runtime.lastError;
+    });
+  } catch (error) {
+    // Ignore best-effort broadcast failures.
+  }
+}
+
+async function setChromeBuiltInStatus(status) {
+  const nextStatus = {
+    ...status,
+    provider: CHROME_BUILTIN_MODE,
+    updatedAt: new Date().toISOString()
+  };
+  await setStorage({ [AI_STORAGE_KEYS.chromeBuiltInStatus]: nextStatus });
+  sendRuntimeStatusMessage({ type: "continueIt.builtinStatus", status: nextStatus });
 }
 
 function originPatternFor(url) {
@@ -92,6 +123,26 @@ function isContextLimitError(error) {
   return error?.name === "QuotaExceededError" || /quota|context/i.test(error?.message || "");
 }
 
+function normalizeDownloadProgress(event) {
+  const loaded = Number.isFinite(event?.loaded) ? event.loaded : null;
+  const total = Number.isFinite(event?.total) && event.total > 0 ? event.total : null;
+  let percent = null;
+
+  if (loaded !== null && total) {
+    percent = Math.round((loaded / total) * 100);
+  } else if (loaded !== null && loaded >= 0 && loaded <= 1) {
+    percent = Math.round(loaded * 100);
+  } else if (loaded !== null && loaded >= 0 && loaded <= 100) {
+    percent = Math.round(loaded);
+  }
+
+  return {
+    loaded,
+    total,
+    percent: Number.isFinite(percent) ? Math.max(0, Math.min(100, percent)) : null
+  };
+}
+
 async function chromeBuiltInCoreOptions() {
   const coreOptions = { ...CHROME_BUILTIN_LANGUAGE_OPTIONS };
   if (typeof LanguageModel.params !== "function") {
@@ -121,8 +172,15 @@ function chromeBuiltInCreateOptions(coreOptions) {
     initialPrompts: [{ role: "system", content: SUMMARY_SYSTEM_PROMPT }],
     monitor(monitor) {
       monitor.addEventListener("downloadprogress", (event) => {
-        const percent = Math.round((event.loaded || 0) * 100);
-        console.log(`[Continue It] Chrome built-in AI model download: ${percent}%`);
+        const progress = normalizeDownloadProgress(event);
+        const percentText = progress.percent === null ? "in progress" : `${progress.percent}%`;
+        console.log(`[Continue It] Chrome built-in AI model download: ${percentText}`);
+        setChromeBuiltInStatus({
+          state: "downloading",
+          loaded: progress.loaded,
+          total: progress.total,
+          percent: progress.percent
+        });
       });
     }
   };
@@ -130,6 +188,11 @@ function chromeBuiltInCreateOptions(coreOptions) {
 
 async function createChromeBuiltInSession() {
   if (!globalThis.LanguageModel) {
+    await setChromeBuiltInStatus({
+      state: "error",
+      availability: "unavailable",
+      error: "Chrome built-in AI is not available in this browser."
+    });
     return {
       ok: false,
       session: null,
@@ -141,9 +204,15 @@ async function createChromeBuiltInSession() {
   let availability = "unknown";
   let coreOptions = CHROME_BUILTIN_LANGUAGE_OPTIONS;
   try {
+    await setChromeBuiltInStatus({ state: "checking", availability });
     coreOptions = await chromeBuiltInCoreOptions();
     availability = await LanguageModel.availability(coreOptions);
   } catch (error) {
+    await setChromeBuiltInStatus({
+      state: "error",
+      availability,
+      error: `Chrome built-in AI availability check failed: ${error?.message || String(error)}`
+    });
     return {
       ok: false,
       session: null,
@@ -153,6 +222,11 @@ async function createChromeBuiltInSession() {
   }
 
   if (isUnavailableAvailability(availability)) {
+    await setChromeBuiltInStatus({
+      state: "error",
+      availability,
+      error: "Chrome built-in AI is not available on this device."
+    });
     return {
       ok: false,
       session: null,
@@ -162,13 +236,21 @@ async function createChromeBuiltInSession() {
   }
 
   try {
+    await setChromeBuiltInStatus({ state: "preparing", availability });
+    const session = await LanguageModel.create(chromeBuiltInCreateOptions(coreOptions));
+    await setChromeBuiltInStatus({ state: "ready", availability });
     return {
       ok: true,
-      session: await LanguageModel.create(chromeBuiltInCreateOptions(coreOptions)),
+      session,
       availability,
       error: null
     };
   } catch (error) {
+    await setChromeBuiltInStatus({
+      state: "error",
+      availability,
+      error: `Chrome built-in AI failed: ${error?.message || String(error)}`
+    });
     return {
       ok: false,
       session: null,
@@ -178,14 +260,57 @@ async function createChromeBuiltInSession() {
   }
 }
 
+function clearChromeBuiltInPrewarmExpiry() {
+  if (chromeBuiltInPrewarmExpiryTimer) {
+    clearTimeout(chromeBuiltInPrewarmExpiryTimer);
+    chromeBuiltInPrewarmExpiryTimer = null;
+  }
+}
+
+function destroyChromeBuiltInSessionResult(result) {
+  try {
+    result?.session?.destroy?.();
+  } catch (error) {
+    console.warn("[Continue It] Could not destroy expired Chrome built-in AI session.", error);
+  }
+}
+
+function scheduleChromeBuiltInPrewarmExpiry(resultPromise) {
+  clearChromeBuiltInPrewarmExpiry();
+  chromeBuiltInPrewarmExpiryTimer = setTimeout(() => {
+    if (chromeBuiltInPrewarmPromise !== resultPromise) {
+      return;
+    }
+    chromeBuiltInPrewarmPromise = null;
+    chromeBuiltInPrewarmExpiryTimer = null;
+    resultPromise
+      .then(async (result) => {
+        if (result?.ok && result.session) {
+          destroyChromeBuiltInSessionResult(result);
+          await setChromeBuiltInStatus({
+            state: "expired",
+            availability: result.availability,
+            error: "Chrome built-in AI prewarm expired before it was used."
+          });
+        }
+      })
+      .catch(() => {});
+  }, CHROME_BUILTIN_PREWARM_TTL_MS);
+}
+
 async function prewarmChromeBuiltIn() {
   if (!chromeBuiltInPrewarmPromise) {
     chromeBuiltInPrewarmPromise = createChromeBuiltInSession();
+    scheduleChromeBuiltInPrewarmExpiry(chromeBuiltInPrewarmPromise);
   }
 
-  const result = await chromeBuiltInPrewarmPromise;
+  const resultPromise = chromeBuiltInPrewarmPromise;
+  const result = await resultPromise;
   if (!result.ok) {
-    chromeBuiltInPrewarmPromise = null;
+    if (chromeBuiltInPrewarmPromise === resultPromise) {
+      chromeBuiltInPrewarmPromise = null;
+      clearChromeBuiltInPrewarmExpiry();
+    }
   }
 
   return {
@@ -197,8 +322,10 @@ async function prewarmChromeBuiltIn() {
 
 async function takeChromeBuiltInSession() {
   if (chromeBuiltInPrewarmPromise) {
-    const result = await chromeBuiltInPrewarmPromise;
+    const resultPromise = chromeBuiltInPrewarmPromise;
     chromeBuiltInPrewarmPromise = null;
+    clearChromeBuiltInPrewarmExpiry();
+    const result = await resultPromise;
     return result;
   }
   return createChromeBuiltInSession();
