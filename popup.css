@@ -259,6 +259,13 @@ button.danger:disabled {
   line-height: 1.4;
 }
 
+.test-status.pending {
+  background: #eef2ff;
+  color: #3730a3;
+  border: 1px solid #c7d2fe;
+  font-variant-numeric: tabular-nums;
+}
+
 .test-status.ok {
   background: #dcfce7;
   color: #166534;
