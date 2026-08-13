@@ -45,8 +45,15 @@
     maxDirectImportTokens: 6500,
     transcriptChunkChars: 12000,
     recommendedStorageWarningBytes: 4000000,
-    maxHistoryEntries: 10,
+    maxHistoryEntries: 100,
     maxSummaryPreviewChars: 2000
+  };
+  const AI_MODE_LABELS = {
+    none: "No AI (local)",
+    builtin: "Chrome built-in AI",
+    server: "Server AI",
+    byok: "Custom API key",
+    failed: "Local fallback after AI failure"
   };
 
   function wait(ms) {
@@ -601,12 +608,14 @@
     const rawJson = JSON.stringify({
       schemaVersion: handoff.schemaVersion,
       id: handoff.id,
+      sessionId: handoff.sessionId || null,
       source: handoff.source,
       createdAt: handoff.createdAt,
       pageTitle: handoff.pageTitle,
       pageUrl: handoff.pageUrl,
       summaryMode: handoff.summaryMode,
       summarySource: handoff.summarySource || null,
+      aiMode: handoff.aiMode || aiModeForHandoff(handoff),
       summary: handoff.summary,
       warnings: handoff.warnings,
       stats: handoff.stats,
@@ -661,6 +670,26 @@
     return { ok: true };
   }
 
+  function aiModeForHandoff(handoff) {
+    if (handoff?.aiMode && AI_MODE_LABELS[handoff.aiMode]) {
+      return handoff.aiMode;
+    }
+    const source = handoff?.summarySource || "";
+    if (source === "Chrome built-in AI") return "builtin";
+    if (source === "Server AI (backend API)") return "server";
+    if (source === "Your own API key") return "byok";
+    if (/failed/i.test(source)) return "failed";
+    return "none";
+  }
+
+  function aiLabelForHandoff(handoff) {
+    return AI_MODE_LABELS[aiModeForHandoff(handoff)] || handoff?.summarySource || "Unknown";
+  }
+
+  function sessionIdForHandoff(handoff) {
+    return handoff?.sessionId || handoff?.id || `session_${Date.now()}`;
+  }
+
   function getStorage(keys) {
     return new Promise((resolve) => {
       chrome.storage.local.get(keys, (result) => resolve(result || {}));
@@ -702,14 +731,21 @@
       [STORAGE_KEYS.savedHandoffs]: existingSavedHandoffs = {},
       [STORAGE_KEYS.chunkCursor]: existingChunkCursors = {}
     } = await getStorage([STORAGE_KEYS.history, STORAGE_KEYS.savedHandoffs, STORAGE_KEYS.chunkCursor]);
+    const sessionId = sessionIdForHandoff(handoff);
+    handoff.sessionId = sessionId;
+    handoff.aiMode = aiModeForHandoff(handoff);
     const historyEntry = {
       id: handoff.id,
+      sessionId,
       createdAt: handoff.createdAt,
       source: handoff.source,
       pageTitle: handoff.pageTitle,
+      pageUrl: handoff.pageUrl,
       totalMessages: handoff.stats.totalMessages,
       assistantMessages: handoff.stats.assistantMessages,
-      summaryMode: handoff.summaryMode
+      summaryMode: handoff.summaryMode,
+      summarySource: handoff.summarySource || "Local (no AI)",
+      aiMode: handoff.aiMode
     };
     const nextHistory = [historyEntry, ...existingHistory.filter((item) => item.id !== handoff.id)].slice(0, LIMITS.maxHistoryEntries);
     const retainedIds = new Set(nextHistory.map((item) => item.id));
@@ -752,6 +788,53 @@
         hasFullHandoff: Boolean(handoff)
       };
     });
+  }
+
+  async function getSavedHandoffSessions() {
+    const entries = await getSavedHandoffs();
+    const sessionsById = new Map();
+
+    entries.forEach((entry) => {
+      const handoff = entry.handoff || null;
+      const sessionId = entry.sessionId || handoff?.sessionId || entry.id;
+      if (!sessionsById.has(sessionId)) {
+        sessionsById.set(sessionId, {
+          id: sessionId,
+          source: entry.source || handoff?.source || "Unknown source",
+          pageTitle: entry.pageTitle || handoff?.pageTitle || "",
+          pageUrl: entry.pageUrl || handoff?.pageUrl || "",
+          createdAt: entry.createdAt || handoff?.createdAt || "",
+          updatedAt: entry.createdAt || handoff?.createdAt || "",
+          totalMessages: entry.totalMessages || handoff?.stats?.totalMessages || 0,
+          assistantMessages: entry.assistantMessages || handoff?.stats?.assistantMessages || 0,
+          variants: []
+        });
+      }
+
+      const session = sessionsById.get(sessionId);
+      const createdAt = entry.createdAt || handoff?.createdAt || "";
+      if (createdAt && (!session.updatedAt || new Date(createdAt) > new Date(session.updatedAt))) {
+        session.updatedAt = createdAt;
+      }
+      session.variants.push({
+        id: entry.id,
+        sessionId,
+        createdAt,
+        summaryMode: entry.summaryMode || handoff?.summaryMode || DEFAULT_SUMMARY_MODE,
+        summarySource: entry.summarySource || handoff?.summarySource || "Local (no AI)",
+        aiMode: entry.aiMode || aiModeForHandoff(handoff),
+        aiLabel: handoff ? aiLabelForHandoff(handoff) : "Metadata only",
+        handoff,
+        hasFullHandoff: Boolean(handoff)
+      });
+    });
+
+    return Array.from(sessionsById.values())
+      .map((session) => ({
+        ...session,
+        variants: session.variants.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
+      }))
+      .sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0));
   }
 
   async function clearHandoff() {
@@ -856,6 +939,7 @@
     DEFAULT_SUMMARY_MODE,
     SUMMARY_MODES,
     LIMITS,
+    AI_MODE_LABELS,
     wait,
     normalizeText,
     cleanMessageText,
@@ -869,9 +953,12 @@
     buildHandoff,
     buildPromptPackage,
     validateHandoff,
+    aiModeForHandoff,
+    aiLabelForHandoff,
     saveHandoff,
     getHandoff,
     getSavedHandoffs,
+    getSavedHandoffSessions,
     clearHandoff,
     getSummaryMode,
     setSummaryMode,

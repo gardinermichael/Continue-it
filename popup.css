@@ -239,7 +239,7 @@ button.danger:disabled {
 
 .link {
   display: inline-block;
-  margin: 8px 0;
+  margin: 8px 10px 8px 0;
   font-size: 12px;
   font-weight: 600;
   color: #1d4ed8;

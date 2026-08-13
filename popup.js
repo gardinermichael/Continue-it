@@ -19,6 +19,7 @@ const byokSettingsEl = document.getElementById("byokSettings");
 const providerSelectEl = document.getElementById("providerSelect");
 const providerNoteEl = document.getElementById("providerNote");
 const providerKeyLinkEl = document.getElementById("providerKeyLink");
+const providerModelsLinkEl = document.getElementById("providerModelsLink");
 const byokBaseUrlEl = document.getElementById("byokBaseUrl");
 const byokModelEl = document.getElementById("byokModel");
 const byokApiKeyEl = document.getElementById("byokApiKey");
@@ -171,6 +172,12 @@ function applyProviderPreset(presetId, { overwriteFields }) {
     providerKeyLinkEl.hidden = false;
   } else {
     providerKeyLinkEl.hidden = true;
+  }
+  if (preset.modelUrl) {
+    providerModelsLinkEl.href = preset.modelUrl;
+    providerModelsLinkEl.hidden = false;
+  } else {
+    providerModelsLinkEl.hidden = true;
   }
   if (overwriteFields && preset.id !== "custom") {
     byokBaseUrlEl.value = preset.baseUrl;
