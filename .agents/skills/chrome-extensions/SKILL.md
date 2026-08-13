@@ -70,22 +70,31 @@ iframe.contentWindow.postMessage({ html, css, js }, '*');
 // sandbox.html receives and runs:
 window.addEventListener('message', (e) => { eval(e.data.js); /* allowed in sandbox */ });
 
-// ✅ OPTION B: Blob URL (creates separate origin, bypasses extension CSP)
-iframe.src = URL.createObjectURL(new Blob([doc], { type: 'text/html' }));
-
-// ✅ OPTION C: srcdoc
-iframe.srcdoc = `<style>${css}</style>${html}<script>${js}<\/script>`;
+// ✅ Arbitrary code path: use a manifest-declared sandbox page and messaging.
+// Blob URLs and unsandboxed srcdoc inherit extension CSP/origin constraints.
+iframe.src = chrome.runtime.getURL('sandbox.html');
+iframe.addEventListener('load', () => {
+  iframe.contentWindow.postMessage({ html, css, js }, '*');
+});
 ```
 
 See `references/extensions/csp-sandbox.md` for full details.
 
-#### 4. `tab.url` requires the `tabs` permission
+#### 4. `tab.url` needs a tab-sensitive access grant
 
-Without it, `tab.url` silently returns `undefined` — no error thrown.
+`tab.url` and `tab.title` are exposed when the extension has one of the
+supported grants for that tab: the `tabs` permission, a matching host permission,
+or a temporary host grant from `activeTab` after a user gesture.
 
 ```js
-// manifest.json — REQUIRED if you read tab.url or tab.title anywhere:
+// Broadest option:
 { "permissions": ["tabs"] }
+
+// Narrower user-invoked option:
+{ "permissions": ["activeTab"] }
+
+// Explicit host option:
+{ "host_permissions": ["https://example.com/*"] }
 ```
 
 See `references/extensions/tab-management.md`.

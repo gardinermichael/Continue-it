@@ -25,6 +25,7 @@
   };
   const DEFAULT_MODE = AI_MODES.none;
   const DEFAULT_SERVER_URL = "http://localhost:8787";
+  let cachedSettings = null;
 
   // Curated list of free / no-card OpenAI-compatible providers. Base URLs and
   // limits verified 2026-07. Always double-check current limits on each site.
@@ -128,10 +129,24 @@
     return PROVIDER_PRESETS.find((preset) => preset.id === id) || null;
   }
 
+  function emptySettings(mode = DEFAULT_MODE) {
+    return {
+      mode,
+      serverUrl: DEFAULT_SERVER_URL,
+      byok: {
+        provider: "openrouter",
+        baseUrl: "",
+        model: "",
+        apiKey: ""
+      },
+      lastQuota: null
+    };
+  }
+
   async function getSettings() {
     const result = await getStorage(Object.values(STORAGE_KEYS));
     const mode = AI_MODES[result[STORAGE_KEYS.mode]] || DEFAULT_MODE;
-    return {
+    cachedSettings = {
       mode,
       serverUrl: result[STORAGE_KEYS.serverUrl] || DEFAULT_SERVER_URL,
       byok: {
@@ -142,6 +157,7 @@
       },
       lastQuota: result[STORAGE_KEYS.lastQuota] || null
     };
+    return cachedSettings;
   }
 
   async function saveSettings(settings) {
@@ -167,6 +183,12 @@
       }
     }
     await setStorage(payload);
+    if (settings.mode !== undefined) {
+      cachedSettings = cachedSettings || emptySettings();
+      cachedSettings.mode = AI_MODES[settings.mode] || DEFAULT_MODE;
+    } else {
+      cachedSettings = null;
+    }
   }
 
   async function saveLastQuota(quota) {
@@ -253,7 +275,36 @@
     });
   }
 
+  if (chrome.storage && chrome.storage.onChanged) {
+    chrome.storage.onChanged.addListener((changes, areaName) => {
+      if (areaName !== "local") {
+        return;
+      }
+      if (changes[STORAGE_KEYS.mode]) {
+        cachedSettings = cachedSettings || emptySettings();
+        cachedSettings.mode = AI_MODES[changes[STORAGE_KEYS.mode].newValue] || DEFAULT_MODE;
+        return;
+      }
+      if (Object.values(STORAGE_KEYS).some((key) => changes[key])) {
+        cachedSettings = null;
+      }
+    });
+  }
+
   // Main entry point used during export. `mode` here is the summary detail level.
+  async function prewarmBuiltInModel() {
+    if (cachedSettings && cachedSettings.mode !== AI_MODES.builtin) {
+      return { ok: false, error: "Chrome built-in AI is not selected." };
+    }
+    if (!cachedSettings) {
+      const settings = await getSettings();
+      if (settings.mode !== AI_MODES.builtin) {
+        return { ok: false, error: "Chrome built-in AI is not selected." };
+      }
+    }
+    return sendToWorker({ type: "continueIt.prewarmBuiltIn", payload: { aiMode: AI_MODES.builtin } });
+  }
+
   async function summarizeConversation({ source, messages, mode, shared }) {
     const settings = await getSettings();
     if (settings.mode === AI_MODES.none) {
@@ -283,7 +334,8 @@
       used: true,
       summary: response && response.summary ? response.summary : null,
       error: response && response.error ? response.error : null,
-      quota: response ? response.quota || null : null
+      quota: response ? response.quota || null : null,
+      warnings: response ? response.warnings || [] : []
     };
   }
 
@@ -313,6 +365,7 @@
     originPatternFor,
     hasOriginPermission,
     requestOriginPermission,
+    prewarmBuiltInModel,
     summarizeConversation,
     testConnection
   };

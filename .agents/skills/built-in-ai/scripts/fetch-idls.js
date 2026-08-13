@@ -31,6 +31,7 @@ const SKILL_TEMPLATE_PATH = path.join(__dirname, '../templates/SKILL.md');
 
 async function fetchIDLs() {
   let allIdls = '';
+  const failures = [];
 
   for (const source of SOURCES) {
     console.log(`Fetching ${source.name}...`);
@@ -39,10 +40,10 @@ async function fetchIDLs() {
       if (!response.ok) throw new Error(`Failed to fetch ${source.url}`);
       const text = await response.text();
 
-      // Extract IDL blocks from <pre class="idl"> or <xmp class="idl">
-      // Bikeshed files use these tags for IDL
+      // Extract IDL blocks from <pre class="idl"> or <xmp class="idl">.
+      // Bikeshed may emit quoted, unquoted, or multi-class attributes.
       const idlRegex =
-        /<(pre|xmp|div)\s+[^>]*class=["']idl["'][^>]*>([\s\S]*?)<\/\1>/gi;
+        /<(pre|xmp|div)\s+[^>]*class=(?:"[^"]*\bidl\b[^"]*"|'[^']*\bidl\b[^']*'|[^\s>]*\bidl\b[^\s>]*)[^>]*>([\s\S]*?)<\/\1>/gi;
       let match;
       let sourceIdls = `### ${source.name}\n\n`;
       let found = false;
@@ -59,14 +60,19 @@ async function fetchIDLs() {
         allIdls += sourceIdls;
       } else {
         console.warn(`No IDL found for ${source.name}`);
+        failures.push(source.name);
       }
     } catch (error) {
       console.error(`Error processing ${source.name}:`, error.message);
+      failures.push(source.name);
     }
   }
 
-  if (!allIdls) {
-    console.error('No IDLs extracted. Aborting template update.');
+  if (failures.length) {
+    console.error(
+      `Could not extract every configured IDL source (${failures.join(', ')}). Aborting template update.`
+    );
+    process.exitCode = 1;
     return;
   }
 

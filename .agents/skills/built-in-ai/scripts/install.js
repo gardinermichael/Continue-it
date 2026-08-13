@@ -5,7 +5,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -71,7 +71,7 @@ export function syncTemplates(targetDir, overwrite = false) {
 
 // In postinstall, INIT_CWD is the directory where npm install was run
 // If this script is run directly (not imported), execute install logic
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   const projectRoot = process.env.INIT_CWD || process.cwd();
   const packageRoot = path.join(__dirname, '..');
 
