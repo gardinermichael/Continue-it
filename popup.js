@@ -218,7 +218,14 @@ saveAiButton.addEventListener("click", async () => {
 
   if (mode === ai.AI_MODES.builtin) {
     await ai.saveSettings({ mode });
-    showSaveFeedback("✓ Saved — Chrome built-in AI enabled when available.");
+    showSaveFeedback("✓ Saved — preparing Chrome built-in AI.");
+    const result = await ai.prewarmBuiltInModel();
+    showSaveFeedback(
+      result && result.ok
+        ? "✓ Saved — Chrome built-in AI is ready."
+        : `⚠ Saved, but Chrome built-in AI is not ready: ${result ? result.error : "no response"}`,
+      result && result.ok ? "success" : "warning"
+    );
     return;
   }
 

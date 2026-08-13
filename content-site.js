@@ -671,6 +671,9 @@
   }
 
   async function _exportConversation() {
+    const builtInPrewarm = window.ContinueItAI && typeof window.ContinueItAI.prewarmBuiltInModel === "function"
+      ? window.ContinueItAI.prewarmBuiltInModel()
+      : null;
     const { messages, diagnostics, rawCandidates } = await captureConversation();
     if (!messages.length) {
       ui.toast(`No ${provider.name} messages found on this page.`, "error");
@@ -696,6 +699,13 @@
       const aiSettings = await window.ContinueItAI.getSettings();
       const modes = window.ContinueItAI.AI_MODES;
       const usingAI = aiSettings.mode !== modes.none;
+      if (aiSettings.mode === modes.builtin && builtInPrewarm) {
+        builtInPrewarm.then((result) => {
+          if (result && !result.ok && result.error) {
+            console.warn(`[Continue It] Chrome built-in AI prewarm failed: ${result.error}`);
+          }
+        });
+      }
       if (usingAI) {
         const toastMessage = aiSettings.mode === modes.server
           ? "Contacting Server AI..."
@@ -712,6 +722,7 @@
       });
       if (aiResult.summary) {
         handoff.summary = aiResult.summary;
+        (aiResult.warnings || []).forEach((warning) => handoff.warnings.push(warning));
         if (aiSettings.mode === modes.server) {
           summarySource = "Server AI (backend API)";
           const left = aiResult.quota && Number.isFinite(aiResult.quota.remaining)
@@ -764,6 +775,9 @@
   }
 
   function boot() {
+    if (window.ContinueItAI && typeof window.ContinueItAI.getSettings === "function") {
+      window.ContinueItAI.getSettings();
+    }
     ui.mountLauncher({
       id: `continue-it-launcher-${provider.id}`,
       label: "Continue It",
