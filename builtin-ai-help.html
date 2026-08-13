@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Chrome built-in AI setup checks</title>
+    <link rel="stylesheet" href="builtin-ai-help.css" />
+  </head>
+  <body>
+    <main class="page">
+      <header class="page-header">
+        <p class="eyebrow">Continue it</p>
+        <h1>Chrome built-in AI setup checks</h1>
+        <p class="intro">
+          Chrome version alone is not enough. The Prompt API also depends on
+          model flags, local model state, hardware, storage, and the requested
+          language/session options.
+        </p>
+      </header>
+
+      <section class="toolbar" aria-label="Diagnostic controls">
+        <button id="runChecks" type="button">Run live checks</button>
+        <button id="testChromeAi" type="button" class="secondary">Test Chrome AI</button>
+        <span id="checkedAt" class="checked-at">Not checked yet</span>
+      </section>
+
+      <section id="testResult" class="test-result" hidden aria-live="polite"></section>
+
+      <section class="panel">
+        <h2>Live extension checks</h2>
+        <ul id="liveChecks" class="check-list"></ul>
+      </section>
+
+      <section class="panel">
+        <h2>Manual Chrome checks</h2>
+        <ul class="check-list">
+          <li>
+            <span class="badge manual">Manual</span>
+            <div>
+              <strong>Enable the on-device model flag</strong>
+              <p>Open <code>chrome://flags/#optimization-guide-on-device-model</code>, set it to Enabled, then relaunch Chrome.</p>
+            </div>
+          </li>
+          <li>
+            <span class="badge manual">Manual</span>
+            <div>
+              <strong>Enable the Prompt API flag</strong>
+              <p>Open <code>chrome://flags/#prompt-api-for-gemini-nano</code>, choose Enabled or Enabled multilingual, then relaunch Chrome.</p>
+            </div>
+          </li>
+          <li>
+            <span class="badge manual">Manual</span>
+            <div>
+              <strong>Check model download state</strong>
+              <p>Open <code>chrome://on-device-internals</code>, then check the Model Status tab for download progress or errors.</p>
+            </div>
+          </li>
+          <li>
+            <span class="badge manual">Manual</span>
+            <div>
+              <strong>Confirm supported device requirements</strong>
+              <p>Use macOS 13+ on desktop with either more than 4 GB GPU VRAM or at least 16 GB RAM and 4 CPU cores.</p>
+            </div>
+          </li>
+          <li>
+            <span class="badge manual">Manual</span>
+            <div>
+              <strong>Keep enough disk available for the Chrome profile</strong>
+              <p>Chrome documents at least 22 GB free for initial use and may remove the model if free space later falls below 10 GB.</p>
+            </div>
+          </li>
+          <li>
+            <span class="badge manual">Manual</span>
+            <div>
+              <strong>Use an unmetered network for the first model download</strong>
+              <p>The model runs locally after download, but Chrome needs an unmetered connection for the initial model fetch.</p>
+            </div>
+          </li>
+        </ul>
+      </section>
+
+      <section class="panel">
+        <h2>Console checks</h2>
+        <p class="body-copy">For the most direct check, open this extension page's DevTools console and run:</p>
+        <pre><code>typeof LanguageModel
+await LanguageModel?.availability?.({
+  expectedInputs: [{ type: "text" }],
+  expectedOutputs: [{ type: "text", languages: ["en"] }]
+})</code></pre>
+      </section>
+    </main>
+    <script src="builtin-ai-help.js"></script>
+  </body>
+</html>

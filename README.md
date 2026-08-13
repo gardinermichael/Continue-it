@@ -323,6 +323,7 @@ To test on a platform, navigate to a chat page with an active conversation and t
 | `storage` | Persist handoffs and chunk cursors across sessions |
 | `unlimitedStorage` | Allow large conversation exports without hitting the default 5 MB quota |
 | `clipboardWrite` | Copy prompts and chunks to clipboard |
+| `contextMenus` | Add extension-icon menu shortcuts for diagnostics and saved handoffs |
 | Host permissions (8 domains) | Inject content scripts on supported AI platforms |
 | `optional_host_permissions` | Requested only when you enable Server AI or your own API key — grants access to that one endpoint |
 

@@ -38,6 +38,7 @@ const statusEl = document.getElementById("status");
 const saveAiFeedbackEl = document.getElementById("saveAiFeedback");
 
 let saveFeedbackTimer = null;
+const BUILTIN_HELP_PAGE = "builtin-ai-help.html";
 
 function setStatus(message) {
   statusEl.textContent = message;
@@ -100,6 +101,21 @@ function describeBuiltInStatus(status) {
     return `Chrome built-in AI is not ready: ${status.error || "unknown error"}`;
   }
   return null;
+}
+
+function shouldLinkBuiltInHelp(message) {
+  return /Chrome built-in AI|LanguageModel|Gemini Nano|Prompt API/i.test(message || "");
+}
+
+function appendBuiltInHelpLink(container) {
+  const link = document.createElement("a");
+  link.className = "status-link";
+  link.href = chrome.runtime.getURL(BUILTIN_HELP_PAGE);
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  link.textContent = "Open setup checks";
+  container.appendChild(document.createTextNode(" "));
+  container.appendChild(link);
 }
 
 function statusClassForBuiltInStatus(status) {
@@ -340,11 +356,18 @@ function stopTestTicker() {
   testAiButton.disabled = false;
 }
 
-function setTestStatus(message, state) {
+function setTestStatus(message, state, options = {}) {
   stopTestTicker();
-  testStatusEl.textContent = message;
+  testStatusEl.textContent = "";
   testStatusEl.className = "test-status" + (state ? ` ${state}` : "");
   testStatusEl.hidden = !message;
+  if (!message) {
+    return;
+  }
+  testStatusEl.appendChild(document.createTextNode(message));
+  if (options.builtInHelp || (state === "error" && shouldLinkBuiltInHelp(message))) {
+    appendBuiltInHelpLink(testStatusEl);
+  }
 }
 
 // A model round trip can take a while. Animated ellipses plus an elapsed second
@@ -376,10 +399,10 @@ testBuiltInButton.addEventListener("click", async () => {
     if (result && result.ok) {
       setTestStatus("Chrome built-in AI is ready.", "ok");
     } else {
-      setTestStatus(`Test failed: ${result ? result.error : "no response"}`, "error");
+      setTestStatus(`Test failed: ${result ? result.error : "no response"}`, "error", { builtInHelp: true });
     }
   } catch (error) {
-    setTestStatus(`Test failed: ${error?.message || String(error)}`, "error");
+    setTestStatus(`Test failed: ${error?.message || String(error)}`, "error", { builtInHelp: true });
   }
 });
 

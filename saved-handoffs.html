@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Saved handoffs</title>
+    <link rel="stylesheet" href="saved-handoffs.css" />
+  </head>
+  <body>
+    <main class="page">
+      <header class="page-header">
+        <p class="eyebrow">Continue it</p>
+        <h1>Saved handoffs</h1>
+        <p class="intro">Review recent handoffs saved by the extension. Full previous handoffs are kept for new saves after this version; older rows may only have history metadata.</p>
+      </header>
+
+      <section id="emptyState" class="empty-state" hidden>
+        <h2>No saved handoffs yet</h2>
+        <p>Export a conversation and save the recommended prompt to build this list.</p>
+      </section>
+
+      <section id="handoffList" class="handoff-list" aria-label="Saved handoffs"></section>
+    </main>
+    <script src="shared-handoff.js"></script>
+    <script src="saved-handoffs.js"></script>
+  </body>
+</html>

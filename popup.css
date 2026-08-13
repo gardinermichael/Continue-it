@@ -278,6 +278,13 @@ button.danger:disabled {
   border: 1px solid #fecaca;
 }
 
+.status-link {
+  color: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 select:hover {
   cursor: pointer;
 }

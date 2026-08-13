@@ -8,7 +8,8 @@
     latest: "continueIt.latestHandoff",
     summaryMode: "continueIt.summaryMode",
     chunkCursor: "continueIt.chunkCursor",
-    history: "continueIt.handoffHistory"
+    history: "continueIt.handoffHistory",
+    savedHandoffs: "continueIt.savedHandoffs"
   };
   const DEFAULT_SUMMARY_MODE = "medium";
   const SUMMARY_MODES = {
@@ -696,7 +697,11 @@
       return { ok: false, error: validation.error };
     }
 
-    const { [STORAGE_KEYS.history]: existingHistory = [] } = await getStorage([STORAGE_KEYS.history]);
+    const {
+      [STORAGE_KEYS.history]: existingHistory = [],
+      [STORAGE_KEYS.savedHandoffs]: existingSavedHandoffs = {},
+      [STORAGE_KEYS.chunkCursor]: existingChunkCursors = {}
+    } = await getStorage([STORAGE_KEYS.history, STORAGE_KEYS.savedHandoffs, STORAGE_KEYS.chunkCursor]);
     const historyEntry = {
       id: handoff.id,
       createdAt: handoff.createdAt,
@@ -707,12 +712,20 @@
       summaryMode: handoff.summaryMode
     };
     const nextHistory = [historyEntry, ...existingHistory.filter((item) => item.id !== handoff.id)].slice(0, LIMITS.maxHistoryEntries);
+    const retainedIds = new Set(nextHistory.map((item) => item.id));
+    const nextSavedHandoffs = Object.fromEntries(
+      Object.entries({
+        ...existingSavedHandoffs,
+        [handoff.id]: handoff
+      }).filter(([id]) => retainedIds.has(id))
+    );
 
     try {
       await setStorage({
         [STORAGE_KEYS.latest]: handoff,
         [STORAGE_KEYS.history]: nextHistory,
-        [STORAGE_KEYS.chunkCursor]: { [handoff.id]: 0 }
+        [STORAGE_KEYS.savedHandoffs]: nextSavedHandoffs,
+        [STORAGE_KEYS.chunkCursor]: { ...existingChunkCursors, [handoff.id]: 0 }
       });
       return { ok: true };
     } catch (error) {
@@ -723,6 +736,22 @@
   async function getHandoff() {
     const result = await getStorage([STORAGE_KEYS.latest]);
     return result[STORAGE_KEYS.latest] || null;
+  }
+
+  async function getSavedHandoffs() {
+    const result = await getStorage([STORAGE_KEYS.history, STORAGE_KEYS.savedHandoffs, STORAGE_KEYS.latest]);
+    const history = Array.isArray(result[STORAGE_KEYS.history]) ? result[STORAGE_KEYS.history] : [];
+    const savedHandoffs = result[STORAGE_KEYS.savedHandoffs] || {};
+    const latest = result[STORAGE_KEYS.latest] || null;
+
+    return history.map((entry) => {
+      const handoff = savedHandoffs[entry.id] || (latest && latest.id === entry.id ? latest : null);
+      return {
+        ...entry,
+        handoff: handoff || null,
+        hasFullHandoff: Boolean(handoff)
+      };
+    });
   }
 
   async function clearHandoff() {
@@ -842,6 +871,7 @@
     validateHandoff,
     saveHandoff,
     getHandoff,
+    getSavedHandoffs,
     clearHandoff,
     getSummaryMode,
     setSummaryMode,

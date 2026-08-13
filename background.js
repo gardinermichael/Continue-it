@@ -22,6 +22,18 @@ const CHROME_BUILTIN_LANGUAGE_OPTIONS = {
   expectedInputs: [{ type: "text" }],
   expectedOutputs: [{ type: "text", languages: ["en"] }]
 };
+const ACTION_CONTEXT_MENU_ITEMS = [
+  {
+    id: "continue-it-open-builtin-ai-checks",
+    title: "Chrome AI setup checks",
+    page: "builtin-ai-help.html"
+  },
+  {
+    id: "continue-it-open-saved-handoffs",
+    title: "View saved handoffs",
+    page: "saved-handoffs.html"
+  }
+];
 
 let chromeBuiltInPrewarmPromise = null;
 let chromeBuiltInPrewarmExpiryTimer = null;
@@ -48,6 +60,39 @@ function sendRuntimeStatusMessage(message) {
   } catch (error) {
     // Ignore best-effort broadcast failures.
   }
+}
+
+function openExtensionPage(page) {
+  chrome.tabs.create({ url: chrome.runtime.getURL(page) });
+}
+
+function installActionContextMenus() {
+  if (!chrome.contextMenus) {
+    return;
+  }
+
+  chrome.contextMenus.removeAll(() => {
+    ACTION_CONTEXT_MENU_ITEMS.forEach((item) => {
+      chrome.contextMenus.create({
+        id: item.id,
+        title: item.title,
+        contexts: ["action"]
+      });
+    });
+  });
+}
+
+chrome.runtime.onInstalled.addListener(() => {
+  installActionContextMenus();
+});
+
+if (chrome.contextMenus) {
+  chrome.contextMenus.onClicked.addListener((info) => {
+    const item = ACTION_CONTEXT_MENU_ITEMS.find((candidate) => candidate.id === info.menuItemId);
+    if (item) {
+      openExtensionPage(item.page);
+    }
+  });
 }
 
 async function setChromeBuiltInStatus(status) {
