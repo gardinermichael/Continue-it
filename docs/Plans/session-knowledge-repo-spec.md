@@ -519,8 +519,11 @@ convergent pattern across multiple swept repositories.
 
 - **Atomic session-bundle write.** Write a session folder to a temporary
   directory and make `manifest.json` the last file written — the commit marker.
-  A bundle without a final `manifest.json` is treated as torn and ignored on
-  read. Do not rely on post-hoc hash verification to detect a partial write.
+  After every content file and the manifest are complete, atomically rename or
+  promote the temporary directory into `sessions/<id>`. A bundle without a final
+  `manifest.json`, or one still under a temporary name, is treated as torn and
+  ignored on read. Do not rely on post-hoc hash verification to detect a partial
+  write.
   (Pattern: `leonhartX/gas-github` blob→tree→commit→ref sequencing.)
 - **Split verification into Verify and Guard.** *Guard* checks invariants (schema
   valid, references resolve, no dropped messages, raw hash matches) and, on
@@ -653,14 +656,19 @@ worthless if capture silently drops the beginning):
    `parent_message_id`; a hard "capture incomplete" marker propagated into the
    manifest, summary, and handoff when top-proof is absent.
 2. Add a session artifact builder that emits JSONL, XML, summary Markdown,
-   handoff Markdown, and manifest objects from a verified-complete capture, using
-   the atomic-bundle write (manifest.json written last as the commit marker).
+   handoff Markdown, and manifest objects from captures whether complete or
+   incomplete. Incomplete captures must carry the hard warning into every
+   generated artifact. Promotion to rolling synthesis, not local artifact
+   creation, requires `verified-complete`.
 3. Apply the Verify/Guard split and the anti-skimming density floor to generated
    summaries and handoffs; record verifier-backend provenance in the manifest.
 4. Add export/download UI for a zipped session directory, plus repo layout
    documentation and fixtures.
 5. Add optional GitHub sync after local artifact export is stable — with a
-   secret-redaction/scan pass over transcript content before any sync.
+   secret-redaction/scan pass over every file selected for sync, including
+   transcripts, summaries, handoffs, manifests, produced documents, references,
+   attachments, and generated packs. Block the entire commit if any artifact
+   fails the gate.
 
 The main risk is silent incompleteness. The extension should prefer an explicit
 "capture incomplete" warning over a polished but partial summary. See

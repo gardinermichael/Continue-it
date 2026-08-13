@@ -29,13 +29,11 @@ knowledge export spec.
   - Server AI and BYOK privacy rules
   - session-first knowledge export direction
   - verification expectations
-- Installed/project-staged local skills and generated skill reference bundles:
+- Installed/project-staged local skills:
   - `.agents/skills/chrome-ai`
   - `.agents/skills/chrome-extensions`
   - `.agents/skills/built-in-ai`
   - `.agents/skills/to-spec`
-  - mirrored generated skill folders under `.bob`, `.bolt`, `.cline`,
-    `.cursor`, `.github`, `.kilo`, `.roo`, and `output/`
 - Added `docs/Plans/session-knowledge-repo-spec.md`, a full implementation
   plan for exporting sessions to a Git-backed, Obsidian-friendly LLM wiki.
 - Expanded the export spec with lessons from bookmark organizers, AI chat
@@ -115,9 +113,9 @@ small, reviewable slices.
 - Review the spec's new bookmark/reference/context section and added matrix rows
   for Relai, ChatGPT exporters, SiftMarks, Context-Sync, MindVault, Context
   Anchor, promptPACK, TabBrain, Khoj, AI-MarkDone, and related bookmark tools.
-- Decide whether generated multi-tool skill mirrors under `.bob`, `.bolt`,
-  `.cline`, `.cursor`, `.github`, `.kilo`, `.roo`, and `output/` should remain
-  versioned in this repo or be moved/ignored later.
+- Generated multi-tool skill mirrors under `.bob`, `.bolt`, `.cline`, `.cursor`,
+  `.github`, `.kilo`, `.roo`, and `output/` are intentionally ignored after the
+  second-pass PR. Review the canonical `.agents/skills/*` folders instead.
 
 ## Validation
 
@@ -147,8 +145,9 @@ Manual validation still required:
 - The session knowledge export spec is intentionally broad. Implementation
   should start with a narrow artifact builder and local zip/download flow before
   GitHub sync or autonomous synthesis.
-- The generated skills/reference folders make the PR larger. They are included
-  because the user requested agents, skills, docs, and related setup together.
+- Generated skill mirrors are not canonical and should not be reviewed as source
+  after the second-pass cleanup. Re-run the generator locally when those mirrors
+  are needed for another tool.
 
 ## Next Implementation Slice
 
