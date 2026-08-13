@@ -3,9 +3,10 @@ node_modules/
 .claude
 .DS_Store
 
-# Generated skill mirrors for other agent tools. The canonical skills live in
-# .agents/skills/; these per-tool copies are machine-generated and should not be
-# versioned (they inflate the diff without adding reviewable source).
+# Generated skill mirrors for other agent tools. The canonical skills and
+# provenance notes live in .agents/skills/; these per-tool copies are
+# machine-generated and should not be versioned (they inflate the diff without
+# adding reviewable source).
 .bob/
 .bolt/
 .cline/
